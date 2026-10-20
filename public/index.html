@@ -150,22 +150,6 @@ const MODE_ICON = { WALKING:'🚶', TRANSIT:'🚇', DRIVING:'🚗', BICYCLING:'�
 let trip = { title:'', mode:'WALKING', stops:[] };   // stops: {id,name,address,lat,lng,memo}
 let map, geocoder, directions, routeRenderer, markers = [], legs = [], straightLine, dragIdx = null;
 const ORANGE = '#ff7a00';
-const MAP_STYLES = [
-  { elementType:'geometry', stylers:[{ color:'#f3f1ec' }] },
-  { elementType:'labels.icon', stylers:[{ visibility:'off' }] },
-  { elementType:'labels.text.fill', stylers:[{ color:'#8a8a8a' }] },
-  { elementType:'labels.text.stroke', stylers:[{ color:'#ffffff' }, { weight:3 }] },
-  { featureType:'poi', stylers:[{ visibility:'off' }] },
-  { featureType:'poi.park', elementType:'geometry', stylers:[{ visibility:'on' }, { color:'#e4ecd9' }] },
-  { featureType:'transit', stylers:[{ visibility:'off' }] },
-  { featureType:'administrative', elementType:'geometry', stylers:[{ visibility:'off' }] },
-  { featureType:'administrative.locality', elementType:'labels.text.fill', stylers:[{ color:'#555555' }] },
-  { featureType:'road', elementType:'geometry', stylers:[{ color:'#ffffff' }] },
-  { featureType:'road', elementType:'geometry.stroke', stylers:[{ color:'#e8e6e0' }] },
-  { featureType:'road.highway', elementType:'geometry', stylers:[{ color:'#fbfaf7' }] },
-  { featureType:'water', elementType:'geometry', stylers:[{ color:'#cfe3ee' }] },
-  { featureType:'water', elementType:'labels.text.fill', stylers:[{ color:'#8aa6b5' }] },
-];
 const markerIcon = n => ({
   url:'data:image/svg+xml;charset=UTF-8,' + encodeURIComponent(
     `<svg xmlns="http://www.w3.org/2000/svg" width="34" height="34"><circle cx="17" cy="17" r="14" fill="${ORANGE}" stroke="#fff" stroke-width="3"/><text x="17" y="22" font-family="Arial,sans-serif" font-size="14" font-weight="700" text-anchor="middle" fill="#fff">${n}</text></svg>`),
@@ -212,7 +196,7 @@ async function start(key) {
   await google.maps.importLibrary('geocoding');
   await google.maps.importLibrary('routes');
 
-  map = new Map($('#map'), { center:{lat:37.5665,lng:126.978}, zoom:12, styles:MAP_STYLES, disableDefaultUI:true, zoomControl:!matchMedia('(max-width:760px)').matches, gestureHandling:'greedy', clickableIcons:false });
+  map = new Map($('#map'), { center:{lat:37.5665,lng:126.978}, zoom:12, disableDefaultUI:true, zoomControl:!matchMedia('(max-width:760px)').matches, gestureHandling:'greedy', clickableIcons:false });
   geocoder = new google.maps.Geocoder();
   directions = new google.maps.DirectionsService();
   routeRenderer = new google.maps.DirectionsRenderer({ map, suppressMarkers:true, preserveViewport:true, polylineOptions:{ strokeColor:ORANGE, strokeWeight:7, strokeOpacity:1 } });
