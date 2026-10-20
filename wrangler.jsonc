@@ -1,7 +1,17 @@
 {
   "name": "tripoute",
+  "main": "src/worker.js",
   "compatibility_date": "2026-10-01",
   "assets": {
-    "directory": "./public"
+    "directory": "./public",
+    "binding": "ASSETS",
+    "run_worker_first": true,
+    "html_handling": "none"
+  },
+  "d1_databases": [
+    { "binding": "DB", "database_name": "tripoute-db" }
+  ],
+  "vars": {
+    "ADMIN_EMAIL": "sundc753@gmail.com"
   }
 }

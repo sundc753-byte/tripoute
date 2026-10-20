@@ -1,0 +1,128 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#1b1f27" media="(prefers-color-scheme: dark)">
+<title>로그인 · 나만의 여행경로</title>
+<style>
+  :root { --bg:#f6f7f9; --card:#fff; --text:#1f2430; --muted:#6b7280; --line:#e5e7eb; --accent:#ff7a00; --danger:#dc2626; --ok:#15803d; }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg:#12151b; --card:#1b1f27; --text:#e8eaed; --muted:#9aa3b2; --line:#2c323d; --accent:#ff8f26; --danger:#f87171; --ok:#4ade80; }
+  }
+  * { box-sizing:border-box; }
+  html, body { margin:0; min-height:100%; background:var(--bg); color:var(--text); font-family:-apple-system,"Apple SD Gothic Neo","Noto Sans KR",sans-serif; }
+  body { min-height:100dvh; display:grid; place-items:center; padding:16px; }
+  .card { width:100%; max-width:380px; background:var(--card); border:1px solid var(--line); border-radius:16px; padding:24px 22px; box-shadow:0 4px 24px rgba(0,0,0,.06); }
+  h1 { margin:0 0 4px; font-size:20px; }
+  .sub { margin:0 0 18px; color:var(--muted); font-size:13px; line-height:1.5; }
+  .tabs { display:flex; gap:4px; background:var(--bg); padding:4px; border-radius:10px; margin-bottom:16px; }
+  .tabs button { flex:1; border:none; background:none; color:var(--muted); padding:9px; border-radius:8px; font-size:14px; cursor:pointer; }
+  .tabs button.on { background:var(--card); color:var(--text); font-weight:600; box-shadow:0 1px 3px rgba(0,0,0,.1); }
+  label { display:block; font-size:13px; margin:12px 0 5px; }
+  input { width:100%; padding:11px 12px; border:1px solid var(--line); border-radius:10px; background:var(--bg); color:var(--text); font-size:16px; }
+  input:focus { outline:2px solid var(--accent); outline-offset:-1px; }
+  .submit { width:100%; margin-top:18px; padding:12px; border:none; border-radius:10px; background:var(--accent); color:#fff; font-size:15px; font-weight:600; cursor:pointer; }
+  .submit:disabled { opacity:.6; cursor:default; }
+  .msg { margin-top:14px; font-size:13px; line-height:1.5; min-height:1em; }
+  .msg.err { color:var(--danger); }
+  .msg.ok { color:var(--ok); }
+  .link { background:none; border:none; color:var(--muted); font-size:12px; text-decoration:underline; cursor:pointer; padding:0; margin-top:12px; }
+  .hide { display:none; }
+</style>
+</head>
+<body>
+<main class="card">
+  <h1>🧭 나만의 여행경로</h1>
+  <p class="sub">승인된 사용자만 이용할 수 있습니다. 회원가입 후 관리자의 승인이 필요합니다.</p>
+
+  <div class="tabs" role="tablist">
+    <button type="button" id="tabLogin" class="on" role="tab">로그인</button>
+    <button type="button" id="tabSignup" role="tab">회원가입</button>
+  </div>
+
+  <form id="form" novalidate>
+    <label for="email">이메일</label>
+    <input id="email" type="email" autocomplete="email" inputmode="email" required>
+
+    <label for="password">비밀번호 <span id="pwHint" class="hide" style="color:var(--muted)">(8자 이상)</span></label>
+    <input id="password" type="password" autocomplete="current-password" required>
+
+    <div id="confirmWrap" class="hide">
+      <label for="password2">비밀번호 확인</label>
+      <input id="password2" type="password" autocomplete="new-password">
+    </div>
+
+    <div id="setupWrap" class="hide">
+      <label for="setupCode">관리자 설정 코드</label>
+      <input id="setupCode" type="password" autocomplete="off">
+    </div>
+
+    <button class="submit" id="submit" type="submit">로그인</button>
+    <div class="msg" id="msg" role="status" aria-live="polite"></div>
+    <button type="button" class="link hide" id="adminLink">관리자 계정 만들기</button>
+  </form>
+</main>
+
+<script>
+const $ = s => document.querySelector(s);
+let mode = 'login';
+
+function setMode(m) {
+  mode = m;
+  const signup = m === 'signup';
+  $('#tabLogin').classList.toggle('on', !signup);
+  $('#tabSignup').classList.toggle('on', signup);
+  $('#submit').textContent = signup ? '가입 요청' : '로그인';
+  $('#confirmWrap').classList.toggle('hide', !signup);
+  $('#pwHint').classList.toggle('hide', !signup);
+  $('#adminLink').classList.toggle('hide', !signup);
+  if (!signup) $('#setupWrap').classList.add('hide');
+  $('#password').autocomplete = signup ? 'new-password' : 'current-password';
+  say('');
+}
+function say(text, kind = '') { const m = $('#msg'); m.textContent = text; m.className = 'msg ' + kind; }
+
+$('#tabLogin').onclick = () => setMode('login');
+$('#tabSignup').onclick = () => setMode('signup');
+$('#adminLink').onclick = () => $('#setupWrap').classList.toggle('hide');
+
+$('#form').addEventListener('submit', async e => {
+  e.preventDefault();
+  const email = $('#email').value.trim(), password = $('#password').value;
+  if (!email || !password) return say('이메일과 비밀번호를 입력하세요.', 'err');
+
+  const body = { email, password };
+  if (mode === 'signup') {
+    if (password.length < 8) return say('비밀번호는 8자 이상이어야 합니다.', 'err');
+    if (password !== $('#password2').value) return say('비밀번호 확인이 일치하지 않습니다.', 'err');
+    if (!$('#setupWrap').classList.contains('hide')) body.setupCode = $('#setupCode').value;
+  }
+
+  $('#submit').disabled = true;
+  try {
+    const res = await fetch('/api/auth/' + mode, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) return say(data.error || '요청을 처리하지 못했습니다.', 'err');
+
+    if (mode === 'login') {
+      location.href = '/' + location.hash;   // 공유 링크(#t=...)로 들어왔다면 그대로 이어서 엽니다
+    } else if (data.status === 'approved') {
+      say('관리자 계정이 만들어졌습니다. 로그인해 주세요.', 'ok');
+      setMode('login'); say('관리자 계정이 만들어졌습니다. 로그인해 주세요.', 'ok');
+    } else {
+      say('가입 요청이 접수되었습니다. 관리자 승인 후 로그인할 수 있습니다.', 'ok');
+      $('#password').value = ''; $('#password2').value = '';
+    }
+  } catch {
+    say('네트워크 오류가 발생했습니다. 잠시 후 다시 시도하세요.', 'err');
+  } finally {
+    $('#submit').disabled = false;
+  }
+});
+</script>
+</body>
+</html>

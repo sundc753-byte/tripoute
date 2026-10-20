@@ -49,6 +49,11 @@
   #err button { margin-top:8px; }
   #toast { position:fixed; bottom:20px; left:50%; transform:translateX(-50%); background:#111; color:#fff; padding:8px 14px; border-radius:8px; font-size:13px; opacity:0; transition:.2s; pointer-events:none; z-index:20; }
   #toast.show { opacity:1; }
+  .userbar { margin-top:8px; font-size:12px; color:var(--muted); justify-content:space-between; flex-wrap:nowrap; }
+  .userbar #who { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; min-width:0; }
+  .userbar .acts { display:flex; gap:6px; flex:none; }
+  .userbar a { color:var(--accent); text-decoration:none; padding:4px 8px; border:1px solid var(--line); border-radius:8px; font-size:12px; }
+  .userbar button { padding:4px 8px; font-size:12px; min-height:0; }
   #sheetHandle { display:none; }
   .mv { display:none; }
   @media (max-width:760px), (pointer:coarse) {
@@ -94,6 +99,10 @@
       <h1>🧭 나만의 여행경로</h1>
       <div class="row">
         <input type="text" id="title" placeholder="여행 이름 (예: 도쿄 3박 4일)" style="flex:1">
+      </div>
+      <div class="row userbar">
+        <span id="who"></span>
+        <span class="acts"><a id="adminLink" href="/admin" hidden>회원 관리</a><button id="logout">로그아웃</button></span>
       </div>
     </div>
     <div class="search" id="searchBox"></div>
@@ -437,6 +446,18 @@ $('#sheetHandle').addEventListener('touchend', e => {
 });
 // 지점 이름을 누르면 지도가 보이도록 시트를 접음
 list.addEventListener('click', e => { if (e.target.closest('[data-focus]') && matchMedia('(max-width:760px)').matches) sheet.dataset.sheet = 'min'; });
+
+/* ---------- 로그인 사용자 ---------- */
+fetch('/api/auth/me', { cache:'no-store' }).then(async res => {
+  if (!res.ok) return location.replace('/login' + location.hash);
+  const me = await res.json();
+  $('#who').textContent = me.email;
+  if (me.role === 'admin') $('#adminLink').hidden = false;
+}).catch(() => {});
+$('#logout').addEventListener('click', async () => {
+  await fetch('/api/auth/logout', { method:'POST', headers:{ 'Content-Type':'application/json' }, body:'{}' }).catch(() => {});
+  location.href = '/login';
+});
 
 /* ---------- 시작 ---------- */
 trip = loadInitial();

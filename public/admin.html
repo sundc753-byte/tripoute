@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#1b1f27" media="(prefers-color-scheme: dark)">
+<title>회원 관리 · 나만의 여행경로</title>
+<style>
+  :root { --bg:#f6f7f9; --card:#fff; --text:#1f2430; --muted:#6b7280; --line:#e5e7eb; --accent:#ff7a00; --danger:#dc2626; --ok:#15803d; }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg:#12151b; --card:#1b1f27; --text:#e8eaed; --muted:#9aa3b2; --line:#2c323d; --accent:#ff8f26; --danger:#f87171; --ok:#4ade80; }
+  }
+  * { box-sizing:border-box; }
+  html { background:var(--card); }
+  body { margin:0; background:var(--bg); color:var(--text); font-family:-apple-system,"Apple SD Gothic Neo","Noto Sans KR",sans-serif; }
+  header { background:var(--card); border-bottom:1px solid var(--line); padding:14px 16px; display:flex; align-items:center; gap:10px; flex-wrap:wrap; }
+  header h1 { margin:0; font-size:17px; flex:1; }
+  main { max-width:760px; margin:0 auto; padding:16px; }
+  a.btn, button { padding:8px 12px; border:1px solid var(--line); border-radius:8px; background:var(--card); color:var(--text); font-size:13px; cursor:pointer; text-decoration:none; }
+  button.ok { background:var(--accent); border-color:var(--accent); color:#fff; }
+  button.danger { color:var(--danger); }
+  h2 { font-size:14px; margin:22px 0 8px; color:var(--muted); font-weight:600; }
+  .list { background:var(--card); border:1px solid var(--line); border-radius:12px; overflow:hidden; }
+  .row { display:flex; align-items:center; gap:10px; padding:12px 14px; border-bottom:1px solid var(--line); flex-wrap:wrap; }
+  .row:last-child { border-bottom:none; }
+  .who { flex:1; min-width:180px; word-break:break-all; }
+  .who small { display:block; color:var(--muted); font-size:12px; margin-top:2px; }
+  .acts { display:flex; gap:6px; }
+  .tag { font-size:11px; padding:2px 7px; border-radius:20px; border:1px solid var(--line); color:var(--muted); }
+  .empty { padding:18px 14px; color:var(--muted); font-size:13px; }
+  #msg { margin-top:12px; font-size:13px; color:var(--danger); }
+</style>
+</head>
+<body>
+<header>
+  <h1>회원 관리</h1>
+  <a class="btn" href="/">여행경로로 돌아가기</a>
+  <button id="logout">로그아웃</button>
+</header>
+<main>
+  <div id="msg"></div>
+  <h2>승인 대기</h2><div class="list" id="pending"></div>
+  <h2>승인됨</h2><div class="list" id="approved"></div>
+  <h2>거절됨</h2><div class="list" id="rejected"></div>
+</main>
+<script>
+const $ = s => document.querySelector(s);
+const esc = s => String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const fmt = t => new Date(t * 1000).toLocaleString('ko-KR');
+
+async function api(path, method = 'GET') {
+  const res = await fetch(path, { method, headers: { 'Content-Type': 'application/json' }, body: method === 'POST' ? '{}' : undefined });
+  if (res.status === 401 || res.status === 403) { location.href = '/login'; throw new Error('auth'); }
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || '요청 실패');
+  return data;
+}
+
+function rowHtml(u) {
+  const acts = u.role === 'admin' ? '<span class="tag">관리자</span>' : {
+    pending:  `<button class="ok" data-a="approve" data-id="${u.id}">승인</button><button class="danger" data-a="reject" data-id="${u.id}">거절</button>`,
+    approved: `<button class="danger" data-a="reject" data-id="${u.id}">승인 취소</button><button class="danger" data-a="delete" data-id="${u.id}">삭제</button>`,
+    rejected: `<button class="ok" data-a="approve" data-id="${u.id}">승인</button><button class="danger" data-a="delete" data-id="${u.id}">삭제</button>`,
+  }[u.status];
+  return `<div class="row"><div class="who">${esc(u.email)}<small>가입 ${fmt(u.created_at)}</small></div><div class="acts">${acts}</div></div>`;
+}
+
+async function load() {
+  try {
+    const { users } = await api('/api/admin/users');
+    for (const s of ['pending', 'approved', 'rejected']) {
+      const items = users.filter(u => u.status === s);
+      $('#' + s).innerHTML = items.length ? items.map(rowHtml).join('') : '<div class="empty">없음</div>';
+    }
+    $('#msg').textContent = '';
+  } catch (e) { if (e.message !== 'auth') $('#msg').textContent = e.message; }
+}
+
+document.addEventListener('click', async e => {
+  const b = e.target.closest('button[data-a]'); if (!b) return;
+  if (b.dataset.a === 'delete' && !confirm('이 사용자를 삭제할까요? 되돌릴 수 없습니다.')) return;
+  b.disabled = true;
+  try { await api(`/api/admin/users/${b.dataset.id}/${b.dataset.a}`, 'POST'); } catch (err) { $('#msg').textContent = err.message; }
+  load();
+});
+$('#logout').onclick = async () => { await fetch('/api/auth/logout', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' }); location.href = '/login'; };
+load();
+</script>
+</body>
+</html>
