@@ -127,7 +127,7 @@
     <h2>Google Maps API 키 입력</h2>
     <p>구글 계정 연동 없이 <b>API 키</b>만 있으면 됩니다. 키는 이 브라우저(localStorage)에만 저장되며 어디로도 전송되지 않습니다.</p>
     <ol style="padding-left:18px;list-style:decimal;font-size:13px;color:var(--muted)">
-      <li>Google Cloud Console에서 프로젝트 생성 후 <b>Maps JavaScript API</b>, <b>Places API (New)</b>, <b>Geocoding API</b>, <b>Directions API</b> 활성화</li>
+      <li>Google Cloud Console에서 프로젝트 생성 후 <b>Maps JavaScript API</b>, <b>Places API (New)</b>, <b>Geocoding API</b>, <b>Routes API</b> 활성화</li>
       <li>사용자 인증정보 → API 키 생성</li>
       <li>키 제한 → HTTP 리퍼러에 사용할 주소(예: <code>localhost:8000/*</code>) 지정 권장</li>
     </ol>
@@ -149,7 +149,7 @@ const KEY_STORE = 'tripoute.apikey', DATA_STORE = 'tripoute.trip';
 const MODE_ICON = { WALKING:'🚶', TRANSIT:'🚇', DRIVING:'🚗', BICYCLING:'🚲' };
 
 let trip = { title:'', mode:'WALKING', stops:[] };   // stops: {id,name,address,lat,lng,memo}
-let map, geocoder, directions, routeRenderer, markers = [], legs = [], straightLine, dragIdx = null;
+let map, geocoder, markers = [], routeLines = [], dragIdx = null;
 const ORANGE = '#ff7a00';
 const markerIcon = n => ({
   url:'data:image/svg+xml;charset=UTF-8,' + encodeURIComponent(
@@ -199,8 +199,6 @@ async function start(key) {
 
   map = new Map($('#map'), { center:{lat:37.5665,lng:126.978}, zoom:12, disableDefaultUI:true, zoomControl:!matchMedia('(max-width:760px)').matches, gestureHandling:'greedy', clickableIcons:false });
   geocoder = new google.maps.Geocoder();
-  directions = new google.maps.DirectionsService();
-  routeRenderer = new google.maps.DirectionsRenderer({ map, suppressMarkers:true, preserveViewport:true, polylineOptions:{ strokeColor:ORANGE, strokeWeight:7, strokeOpacity:1 } });
 
   // 장소 검색 (Places 자동완성) — 실패해도 지도는 계속 사용 가능
   try { await initSearch(); } catch (err) {
@@ -285,45 +283,63 @@ function drawMarkers(fit) {
 function fmtDist(m) { return m >= 1000 ? (m / 1000).toFixed(1) + 'km' : m + 'm'; }
 function fmtTime(s) { const m = Math.round(s / 60); return m >= 60 ? `${Math.floor(m / 60)}시간 ${m % 60}분` : `${m}분`; }
 
+const toLL = p => ({ lat: typeof p.lat === 'function' ? p.lat() : p.lat, lng: typeof p.lng === 'function' ? p.lng() : p.lng });
+
 async function drawRoute() {
   const n = trip.stops.length;
   $('#sumText').textContent = `지점 ${n}개`;
   $('#sumDist').textContent = '';
-  routeRenderer.setDirections({ routes: [] });
-  straightLine?.setMap(null); straightLine = null;
+  routeLines.forEach(l => l.setMap(null)); routeLines = [];
   if (n < 2) return;
 
-  const pts = trip.stops.map(s => ({ lat:s.lat, lng:s.lng }));
   const seq = ++drawRoute.seq || (drawRoute.seq = 1);
+  const pts = trip.stops.map(s => ({ lat:s.lat, lng:s.lng }));
+  const stats = new Array(n - 1).fill(null);   // {dist(m), dur(ms)} 또는 null(직선)
+  let paths = [];
+
   try {
-    // Directions는 경유지 최대 25개 제한 → 초과 시 직선 연결
+    // 경유지 최대 25개 제한 → 초과 시 직선 연결
     if (n > 27) throw new Error('too many');
-    const res = await directions.route({
-      origin: pts[0], destination: pts[n - 1],
-      waypoints: pts.slice(1, -1).map(location => ({ location, stopover:true })),
-      travelMode: google.maps.TravelMode[trip.mode],
-    });
-    if (seq !== drawRoute.seq) return;
-    routeRenderer.setDirections(res);
-    let d = 0, t = 0;
-    res.routes[0].legs.forEach((l, i) => {
-      d += l.distance.value; t += l.duration.value;
-      const el = document.querySelector(`[data-leg="${i}"]`);
-      if (el) el.textContent = `↓ ${MODE_ICON[trip.mode]} ${l.distance.text} · ${l.duration.text}`;
-    });
-    $('#sumDist').innerHTML = `<b>${fmtDist(d)}</b> · <b>${fmtTime(t)}</b>`;
-  } catch (err) {
-    if (seq !== drawRoute.seq) return;
-    // 경로 계산 불가(해당 이동수단 미지원 등) → 직선 연결 + 직선거리
-    straightLine = new google.maps.Polyline({ map, path:pts, strokeColor:ORANGE, strokeOpacity:1, strokeWeight:7 });
-    let d = 0;
-    for (let i = 1; i < n; i++) d += haversine(pts[i - 1], pts[i]);
-    $('#sumDist').innerHTML = `직선 약 <b>${fmtDist(Math.round(d))}</b>`;
-    trip.stops.slice(0, -1).forEach((_, i) => {
-      const el = document.querySelector(`[data-leg="${i}"]`);
-      if (el) el.textContent = `↓ 직선 ${fmtDist(Math.round(haversine(pts[i], pts[i + 1])))}`;
-    });
-    if (n <= 27) toast('이 이동수단의 경로를 찾지 못해 직선으로 표시했어요');
+    const { Route } = await google.maps.importLibrary('routes');
+    const fields = ['path', 'legs', 'distanceMeters', 'durationMillis'];
+    if (trip.mode === 'TRANSIT') {
+      // 대중교통은 경유지를 지원하지 않아 구간별로 계산
+      paths = pts.slice(0, -1).map((p, i) => [p, pts[i + 1]]);
+      await Promise.all(pts.slice(0, -1).map(async (p, i) => {
+        try {
+          const { routes } = await Route.computeRoutes({ origin:p, destination:pts[i + 1], travelMode:'TRANSIT', fields });
+          const r = routes?.[0];
+          if (r?.path?.length) { paths[i] = r.path.map(toLL); stats[i] = { dist:r.distanceMeters, dur:r.durationMillis }; }
+        } catch (err) { console.warn('transit leg failed', err); }
+      }));
+    } else {
+      const { routes } = await Route.computeRoutes({
+        origin:pts[0], destination:pts[n - 1], intermediates:pts.slice(1, -1), travelMode:trip.mode, fields,
+      });
+      const r = routes?.[0];
+      if (r?.path?.length && r.legs?.length === n - 1) {
+        paths = [r.path.map(toLL)];
+        r.legs.forEach((l, i) => { stats[i] = { dist:l.distanceMeters, dur:l.durationMillis }; });
+      }
+    }
+  } catch (err) { console.warn('route failed', err); }
+  if (seq !== drawRoute.seq) return;
+
+  const allOk = stats.every(Boolean), anyOk = stats.some(Boolean);
+  if (!paths.length) paths = [pts];                                   // 전부 직선
+  paths.forEach(path => routeLines.push(new google.maps.Polyline({ map, path, strokeColor:ORANGE, strokeOpacity:1, strokeWeight:7, zIndex:1 })));
+
+  let d = 0, t = 0;
+  stats.forEach((st, i) => {
+    const el = document.querySelector(`[data-leg="${i}"]`);
+    if (st) { d += st.dist; t += st.dur; if (el) el.textContent = `↓ ${MODE_ICON[trip.mode]} ${fmtDist(st.dist)} · ${fmtTime(st.dur / 1000)}`; }
+    else if (el) el.textContent = `↓ 직선 ${fmtDist(Math.round(haversine(pts[i], pts[i + 1])))}`;
+  });
+  if (allOk) $('#sumDist').innerHTML = `<b>${fmtDist(d)}</b> · <b>${fmtTime(t / 1000)}</b>`;
+  else {
+    const straight = pts.slice(1).reduce((a, p, i) => a + haversine(pts[i], p), 0);
+    $('#sumDist').innerHTML = anyOk ? '일부 구간은 직선' : `직선 약 <b>${fmtDist(Math.round(straight))}</b>`;
+    if (!anyOk && n <= 27) toast('이 지역·이동수단은 경로 데이터가 없어 직선으로 표시했어요');
   }
 }
 function haversine(a, b) {
