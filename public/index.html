@@ -56,6 +56,15 @@
   .userbar button { padding:4px 8px; font-size:12px; min-height:0; }
   #sheetHandle { display:none; }
   .mv { display:none; }
+  .iw { color:#1f2430; font-family:-apple-system,"Apple SD Gothic Neo","Noto Sans KR",sans-serif; min-width:200px; }
+  .iw-photo { display:block; width:100%; max-height:140px; object-fit:cover; border-radius:8px; margin-bottom:8px; }
+  .iw-title { font-weight:700; font-size:15px; line-height:1.3; }
+  .iw-rating { color:#b45309; font-size:13px; margin-top:3px; }
+  .iw-addr { color:#5f6368; font-size:12px; margin-top:4px; line-height:1.4; }
+  .iw-actions { display:flex; align-items:center; gap:10px; margin-top:10px; flex-wrap:wrap; }
+  .iw-add { background:#ff7a00; border:none; color:#fff; font-weight:600; padding:8px 14px; border-radius:8px; cursor:pointer; font-size:13px; }
+  .iw-add:disabled { background:#d1d5db; cursor:default; }
+  .iw-link { color:#2563eb; font-size:12px; text-decoration:none; }
   @media (max-width:760px), (pointer:coarse) {
     .mv { display:inline-flex; flex-direction:column; gap:2px; }
     .mv button { padding:0; width:30px; height:22px; line-height:1; font-size:12px; }
@@ -115,7 +124,7 @@
       </select>
       <button id="optimize" title="첫 지점과 마지막 지점을 고정하고 중간 순서를 최적화">순서 최적화</button>
       <button id="reverse">역순</button>
-      <span class="hint" style="font-size:12px;color:var(--muted)">지도를 클릭해도 추가됩니다</span>
+      <span class="hint" style="font-size:12px;color:var(--muted)">지도를 눌러 장소 정보를 보고 추가하세요</span>
     </div>
     <div class="summary"><span id="sumText">지점 0개</span><span id="sumDist"></span></div>
     <ol id="list"></ol>
@@ -206,7 +215,7 @@ async function start(key) {
   await google.maps.importLibrary('geocoding');
   await google.maps.importLibrary('routes');
 
-  map = new Map($('#map'), { center:{lat:37.5665,lng:126.978}, zoom:12, disableDefaultUI:true, zoomControl:!matchMedia('(max-width:760px)').matches, gestureHandling:'greedy', clickableIcons:false });
+  map = new Map($('#map'), { center:{lat:37.5665,lng:126.978}, zoom:12, disableDefaultUI:true, zoomControl:!matchMedia('(max-width:760px)').matches, gestureHandling:'greedy', clickableIcons:true });
   geocoder = new google.maps.Geocoder();
 
   // 장소 검색 (Places 자동완성) — 실패해도 지도는 계속 사용 가능
@@ -216,14 +225,10 @@ async function start(key) {
     showError('장소 검색(Places API New) 초기화 실패', 'Cloud Console에서 <b style="display:inline">Places API (New)</b>를 활성화했는지 확인하세요. 지도 클릭으로는 계속 추가할 수 있습니다.<br>' + esc(err.message));
   }
 
-  map.addListener('click', async e => {
-    const ll = e.latLng;
-    let name = '선택한 지점', address = `${ll.lat().toFixed(5)}, ${ll.lng().toFixed(5)}`;
-    try {
-      const r = await geocoder.geocode({ location: ll });
-      if (r.results[0]) { address = r.results[0].formatted_address; name = address.split(',')[0]; }
-    } catch {}
-    addStop({ name, address, lat:ll.lat(), lng:ll.lng() });
+  map.addListener('click', e => {
+    if (e.placeId) e.stop();   // 구글 기본 정보창 대신 아래의 '경로에 추가' 정보창을 사용
+    showInfo(e.latLng, e.placeId);
+    if (matchMedia('(max-width:760px)').matches) sheet.dataset.sheet = 'min';
   });
 
   render(true);
@@ -245,6 +250,66 @@ async function initSearch() {
   };
   ac.addEventListener('gmp-select', onSelect);
   ac.addEventListener('gmp-placeselect', onSelect);
+}
+
+/* ---------- 지도 클릭 정보창 ---------- */
+let infoWindow;
+function el(tag, cls, text) { const n = document.createElement(tag); if (cls) n.className = cls; if (text != null) n.textContent = text; return n; }
+
+function shortAddress(result) {
+  const country = result.address_components?.find(c => c.types.includes('country'))?.long_name;
+  let a = result.formatted_address || '';
+  if (country && a.startsWith(country)) a = a.slice(country.length).replace(/^[\s,、]+/, '');
+  return a.split(/[,、]/)[0].trim() || a;
+}
+
+function buildInfoNode(info) {
+  const card = el('div', 'iw');
+  if (info.photo) { const img = el('img', 'iw-photo'); img.src = info.photo; img.alt = ''; card.appendChild(img); }
+  card.appendChild(el('div', 'iw-title', info.name));
+  if (info.rating) card.appendChild(el('div', 'iw-rating', `★ ${info.rating.toFixed(1)}` + (info.count ? ` (${info.count.toLocaleString()})` : '')));
+  if (info.address) card.appendChild(el('div', 'iw-addr', info.address));
+  const row = el('div', 'iw-actions');
+  const exists = trip.stops.some(st => haversine(st, info) < 15);
+  const add = el('button', 'iw-add', exists ? '이미 추가됨' : '경로에 추가');
+  add.disabled = exists;
+  add.addEventListener('click', () => {
+    addStop({ name:info.name, address:info.address || '', lat:info.lat, lng:info.lng });
+    infoWindow.close();
+    toast(`“${info.name}” 추가됨`);
+  });
+  row.appendChild(add);
+  if (info.url) { const a = el('a', 'iw-link', '구글맵에서 보기'); a.href = info.url; a.target = '_blank'; a.rel = 'noopener'; row.appendChild(a); }
+  card.appendChild(row);
+  return card;
+}
+
+async function showInfo(latLng, placeId) {
+  const seq = ++showInfo.seq || (showInfo.seq = 1);
+  infoWindow ??= new google.maps.InfoWindow({ maxWidth:280 });
+  infoWindow.setContent(el('div', 'iw', '불러오는 중…'));
+  infoWindow.setPosition(latLng);
+  infoWindow.open({ map });
+
+  const lat = latLng.lat(), lng = latLng.lng();
+  let info = { name:'선택한 위치', address:`${lat.toFixed(5)}, ${lng.toFixed(5)}`, lat, lng };
+  try {
+    if (placeId) {
+      const { Place } = await google.maps.importLibrary('places');
+      const place = new Place({ id:placeId });
+      await place.fetchFields({ fields:['displayName', 'formattedAddress', 'location', 'rating', 'userRatingCount', 'photos', 'googleMapsURI'] });
+      info = {
+        name:place.displayName, address:place.formattedAddress || '', lat:place.location.lat(), lng:place.location.lng(),
+        rating:place.rating, count:place.userRatingCount, url:place.googleMapsURI,
+        photo:place.photos?.[0]?.getURI({ maxWidth:560 }),
+      };
+    } else {
+      const res = await geocoder.geocode({ location:latLng });
+      if (res.results[0]) info = { ...info, name:shortAddress(res.results[0]), address:res.results[0].formatted_address };
+    }
+  } catch (err) { console.warn('place info failed', err); }
+  if (seq !== showInfo.seq) return;
+  infoWindow.setContent(buildInfoNode(info));
 }
 
 /* ---------- 지점 조작 ---------- */
