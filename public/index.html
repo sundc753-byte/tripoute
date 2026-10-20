@@ -2,6 +2,8 @@
 <html lang="ko">
 <head>
 <meta charset="utf-8">
+<meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#1b1f27" media="(prefers-color-scheme: dark)">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>나만의 여행경로</title>
 <style>
@@ -10,6 +12,7 @@
     :root { --bg:#12151b; --card:#1b1f27; --text:#e8eaed; --muted:#9aa3b2; --line:#2c323d; --accent:#ff8f26; --danger:#f87171; }
   }
   * { box-sizing:border-box; }
+  html { background:var(--card); }
   body { margin:0; font-family:-apple-system,"Apple SD Gothic Neo","Noto Sans KR",sans-serif; background:var(--bg); color:var(--text); }
   .app { display:grid; grid-template-columns:380px 1fr; height:100vh; }
   aside { background:var(--card); border-right:1px solid var(--line); display:flex; flex-direction:column; min-height:0; }
@@ -54,6 +57,7 @@
     .x { font-size:24px; padding:0 8px; }
   }
   @media (max-width:760px) {
+    html, body { background:var(--card); }
     .app { display:block; position:relative; height:100vh; height:100dvh; }
     #map { position:absolute; inset:0; }
     aside { position:absolute; left:0; right:0; bottom:0; z-index:5; border:none; border-radius:18px 18px 0 0;
