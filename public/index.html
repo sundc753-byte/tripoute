@@ -124,7 +124,7 @@
       </select>
       <button id="optimize" title="첫 지점과 마지막 지점을 고정하고 중간 순서를 최적화">순서 최적화</button>
       <button id="reverse">역순</button>
-      <span class="hint" style="font-size:12px;color:var(--muted)">지도를 눌러 장소 정보를 보고 추가하세요</span>
+      <span class="hint" style="font-size:12px;color:var(--muted)">장소 아이콘을 누르거나 빈 곳을 꾹 눌러 정보를 확인하세요</span>
     </div>
     <div class="summary"><span id="sumText">지점 0개</span><span id="sumDist"></span></div>
     <ol id="list"></ol>
@@ -225,11 +225,42 @@ async function start(key) {
     showError('장소 검색(Places API New) 초기화 실패', 'Cloud Console에서 <b style="display:inline">Places API (New)</b>를 활성화했는지 확인하세요. 지도 클릭으로는 계속 추가할 수 있습니다.<br>' + esc(err.message));
   }
 
+  // 장소 아이콘: 탭하면 장소 정보 / 장소가 아닌 지점: 꾹 눌러야(또는 우클릭) 정보 팝업
+  const collapseSheet = () => { if (matchMedia('(max-width:760px)').matches) sheet.dataset.sheet = 'min'; };
+  let suppressClickUntil = 0;
   map.addListener('click', e => {
-    if (e.placeId) e.stop();   // 구글 기본 정보창 대신 아래의 '경로에 추가' 정보창을 사용
-    showInfo(e.latLng, e.placeId);
-    if (matchMedia('(max-width:760px)').matches) sheet.dataset.sheet = 'min';
+    if (e.placeId) e.stop();                       // 구글 기본 정보창 대신 아래의 '경로에 추가' 정보창을 사용
+    if (Date.now() < suppressClickUntil) return;   // 롱프레스 직후 따라오는 클릭은 무시
+    if (e.placeId) { showInfo(e.latLng, e.placeId); collapseSheet(); }
+    else infoWindow?.close();                      // 빈 곳을 짧게 탭하면 열려 있던 팝업만 닫음
   });
+  map.addListener('rightclick', e => { showInfo(e.latLng); collapseSheet(); });
+
+  const overlay = new google.maps.OverlayView();   // 화면 좌표 → 위경도 변환용
+  overlay.onAdd = overlay.draw = overlay.onRemove = () => {};
+  overlay.setMap(map);
+  const mapEl = $('#map');
+  let press = null;
+  const cancelPress = () => { if (press) clearTimeout(press.timer); press = null; };
+  mapEl.addEventListener('pointerdown', ev => {
+    if (!ev.isPrimary) return cancelPress();       // 두 손가락 제스처(핀치)
+    if (ev.pointerType === 'mouse' && ev.button !== 0) return;
+    if (ev.target.closest('button, a, .gm-style-iw-c')) return;   // 지도 컨트롤·팝업 위는 제외
+    const rect = mapEl.getBoundingClientRect();
+    const px = new google.maps.Point(ev.clientX - rect.left, ev.clientY - rect.top);
+    cancelPress();
+    press = { x:ev.clientX, y:ev.clientY, timer:setTimeout(() => {
+      press = null;
+      const ll = overlay.getProjection()?.fromContainerPixelToLatLng(px);
+      if (!ll) return;
+      suppressClickUntil = Date.now() + 700;
+      navigator.vibrate?.(15);
+      showInfo(ll);
+      collapseSheet();
+    }, 550) };
+  }, { capture:true });
+  mapEl.addEventListener('pointermove', ev => { if (press && Math.hypot(ev.clientX - press.x, ev.clientY - press.y) > 10) cancelPress(); }, { capture:true });
+  ['pointerup', 'pointercancel', 'pointerleave', 'wheel'].forEach(t => mapEl.addEventListener(t, cancelPress, { capture:true }));
 
   render(true);
 }
