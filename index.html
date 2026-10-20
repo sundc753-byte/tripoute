@@ -1,0 +1,396 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>나만의 여행경로</title>
+<style>
+  :root { --bg:#f6f7f9; --card:#fff; --text:#1f2430; --muted:#6b7280; --line:#e5e7eb; --accent:#ff7a00; --danger:#dc2626; }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg:#12151b; --card:#1b1f27; --text:#e8eaed; --muted:#9aa3b2; --line:#2c323d; --accent:#ff8f26; --danger:#f87171; }
+  }
+  * { box-sizing:border-box; }
+  body { margin:0; font-family:-apple-system,"Apple SD Gothic Neo","Noto Sans KR",sans-serif; background:var(--bg); color:var(--text); }
+  .app { display:grid; grid-template-columns:380px 1fr; height:100vh; }
+  aside { background:var(--card); border-right:1px solid var(--line); display:flex; flex-direction:column; min-height:0; }
+  .head { padding:14px 16px; border-bottom:1px solid var(--line); }
+  .head h1 { margin:0 0 8px; font-size:18px; }
+  .row { display:flex; gap:6px; align-items:center; flex-wrap:wrap; }
+  input[type=text], input[type=password], select { width:100%; padding:8px 10px; border:1px solid var(--line); border-radius:8px; background:var(--bg); color:var(--text); font-size:14px; }
+  button { padding:7px 11px; border:1px solid var(--line); border-radius:8px; background:var(--card); color:var(--text); cursor:pointer; font-size:13px; }
+  button:hover { border-color:var(--accent); }
+  button.primary { background:var(--accent); border-color:var(--accent); color:#fff; }
+  button.danger { color:var(--danger); }
+  .search { padding:12px 16px; border-bottom:1px solid var(--line); }
+  gmp-place-autocomplete { width:100%; color-scheme:light dark; }
+  .summary { padding:10px 16px; font-size:13px; color:var(--muted); border-bottom:1px solid var(--line); display:flex; justify-content:space-between; gap:8px; }
+  .summary b { color:var(--text); }
+  ol { list-style:none; margin:0; padding:0; overflow:auto; flex:1; }
+  li.stop { display:flex; gap:10px; padding:10px 16px; border-bottom:1px solid var(--line); align-items:flex-start; background:var(--card); }
+  li.stop.over { outline:2px dashed var(--accent); outline-offset:-2px; }
+  .num { flex:none; width:24px; height:24px; border-radius:50%; background:var(--accent); color:#fff; font-size:12px; display:grid; place-items:center; margin-top:2px; cursor:grab; }
+  .info { flex:1; min-width:0; }
+  .name { font-weight:600; font-size:14px; cursor:pointer; }
+  .addr { font-size:12px; color:var(--muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .memo { margin-top:6px; font-size:13px; padding:5px 8px; }
+  .leg { font-size:12px; color:var(--accent); margin-top:4px; }
+  .x { border:none; background:none; color:var(--muted); font-size:18px; padding:0 4px; }
+  .empty { padding:30px 16px; color:var(--muted); font-size:14px; text-align:center; line-height:1.6; }
+  .foot { padding:10px 16px; border-top:1px solid var(--line); }
+  #map { width:100%; height:100%; }
+  #keyBox { position:fixed; inset:0; background:rgba(0,0,0,.5); display:none; place-items:center; z-index:10; padding:16px; }
+  #keyBox .card { background:var(--card); padding:22px; border-radius:14px; max-width:460px; width:100%; line-height:1.55; font-size:14px; }
+  #keyBox h2 { margin:0 0 8px; }
+  #err { position:fixed; top:16px; right:16px; max-width:420px; background:#fff3f0; color:#7a1f10; border:1px solid #f3b5a8; border-radius:10px; padding:12px 14px; font-size:13px; line-height:1.55; z-index:15; display:none; box-shadow:0 4px 16px rgba(0,0,0,.15); }
+  #err b { display:block; margin-bottom:4px; }
+  #err button { margin-top:8px; }
+  #toast { position:fixed; bottom:20px; left:50%; transform:translateX(-50%); background:#111; color:#fff; padding:8px 14px; border-radius:8px; font-size:13px; opacity:0; transition:.2s; pointer-events:none; z-index:20; }
+  #toast.show { opacity:1; }
+  @media (max-width:760px) {
+    .app { grid-template-columns:1fr; grid-template-rows:46vh 1fr; height:100vh; }
+    aside { order:2; border-right:none; border-top:1px solid var(--line); }
+    #map { order:1; }
+  }
+</style>
+</head>
+<body>
+<div class="app">
+  <aside>
+    <div class="head">
+      <h1>🧭 나만의 여행경로</h1>
+      <div class="row">
+        <input type="text" id="title" placeholder="여행 이름 (예: 도쿄 3박 4일)" style="flex:1">
+      </div>
+    </div>
+    <div class="search" id="searchBox"></div>
+    <div class="row" style="padding:8px 16px;border-bottom:1px solid var(--line)">
+      <select id="mode" style="width:auto">
+        <option value="WALKING">🚶 도보</option>
+        <option value="TRANSIT">🚇 대중교통</option>
+        <option value="DRIVING">🚗 자동차</option>
+        <option value="BICYCLING">🚲 자전거</option>
+      </select>
+      <button id="optimize" title="첫 지점과 마지막 지점을 고정하고 중간 순서를 최적화">순서 최적화</button>
+      <button id="reverse">역순</button>
+      <span style="font-size:12px;color:var(--muted)">지도를 클릭해도 추가됩니다</span>
+    </div>
+    <div class="summary"><span id="sumText">지점 0개</span><span id="sumDist"></span></div>
+    <ol id="list"></ol>
+    <div class="foot row">
+      <button class="primary" id="openGmaps">구글맵에서 열기</button>
+      <button id="share">링크 복사</button>
+      <button id="export">내보내기</button>
+      <button id="import">불러오기</button>
+      <button class="danger" id="clear">초기화</button>
+      <button id="changeKey" style="margin-left:auto">API 키</button>
+    </div>
+  </aside>
+  <div id="map"></div>
+</div>
+
+<div id="keyBox">
+  <div class="card">
+    <h2>Google Maps API 키 입력</h2>
+    <p>구글 계정 연동 없이 <b>API 키</b>만 있으면 됩니다. 키는 이 브라우저(localStorage)에만 저장되며 어디로도 전송되지 않습니다.</p>
+    <ol style="padding-left:18px;list-style:decimal;font-size:13px;color:var(--muted)">
+      <li>Google Cloud Console에서 프로젝트 생성 후 <b>Maps JavaScript API</b>, <b>Places API (New)</b>, <b>Geocoding API</b>, <b>Directions API</b> 활성화</li>
+      <li>사용자 인증정보 → API 키 생성</li>
+      <li>키 제한 → HTTP 리퍼러에 사용할 주소(예: <code>localhost:8000/*</code>) 지정 권장</li>
+    </ol>
+    <input type="password" id="keyInput" placeholder="AIza...">
+    <div class="row" style="margin-top:10px;justify-content:flex-end">
+      <button id="keyCancel">닫기</button>
+      <button class="primary" id="keySave">저장하고 시작</button>
+    </div>
+  </div>
+</div>
+<div id="err"></div>
+<div id="toast"></div>
+<input type="file" id="file" accept="application/json" hidden>
+
+<script>
+const $ = s => document.querySelector(s);
+const KEY_STORE = 'tripoute.apikey', DATA_STORE = 'tripoute.trip';
+const MODE_ICON = { WALKING:'🚶', TRANSIT:'🚇', DRIVING:'🚗', BICYCLING:'🚲' };
+
+let trip = { title:'', mode:'WALKING', stops:[] };   // stops: {id,name,address,lat,lng,memo}
+let map, geocoder, directions, routeRenderer, markers = [], legs = [], straightLine, dragIdx = null;
+const ORANGE = '#ff7a00';
+const MAP_STYLES = [
+  { elementType:'geometry', stylers:[{ color:'#f3f1ec' }] },
+  { elementType:'labels.icon', stylers:[{ visibility:'off' }] },
+  { elementType:'labels.text.fill', stylers:[{ color:'#8a8a8a' }] },
+  { elementType:'labels.text.stroke', stylers:[{ color:'#ffffff' }, { weight:3 }] },
+  { featureType:'poi', stylers:[{ visibility:'off' }] },
+  { featureType:'poi.park', elementType:'geometry', stylers:[{ visibility:'on' }, { color:'#e4ecd9' }] },
+  { featureType:'transit', stylers:[{ visibility:'off' }] },
+  { featureType:'administrative', elementType:'geometry', stylers:[{ visibility:'off' }] },
+  { featureType:'administrative.locality', elementType:'labels.text.fill', stylers:[{ color:'#555555' }] },
+  { featureType:'road', elementType:'geometry', stylers:[{ color:'#ffffff' }] },
+  { featureType:'road', elementType:'geometry.stroke', stylers:[{ color:'#e8e6e0' }] },
+  { featureType:'road.highway', elementType:'geometry', stylers:[{ color:'#fbfaf7' }] },
+  { featureType:'water', elementType:'geometry', stylers:[{ color:'#cfe3ee' }] },
+  { featureType:'water', elementType:'labels.text.fill', stylers:[{ color:'#8aa6b5' }] },
+];
+const markerIcon = n => ({
+  url:'data:image/svg+xml;charset=UTF-8,' + encodeURIComponent(
+    `<svg xmlns="http://www.w3.org/2000/svg" width="34" height="34"><circle cx="17" cy="17" r="14" fill="${ORANGE}" stroke="#fff" stroke-width="3"/><text x="17" y="22" font-family="Arial,sans-serif" font-size="14" font-weight="700" text-anchor="middle" fill="#fff">${n}</text></svg>`),
+  scaledSize:new google.maps.Size(34, 34), anchor:new google.maps.Point(17, 17),
+});
+
+const safe = fn => { try { return fn(); } catch { return null; } };
+const toast = msg => { const t=$('#toast'); t.textContent=msg; t.classList.add('show'); setTimeout(()=>t.classList.remove('show'),1800); };
+function showError(title, detail) {
+  const e = $('#err');
+  e.innerHTML = `<b>⚠ ${esc(title)}</b>${detail}<br><button onclick="document.getElementById('changeKey').click()">API 키 다시 입력</button> <button onclick="this.parentElement.style.display='none'">닫기</button>`;
+  e.style.display = 'block';
+}
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+
+/* ---------- 저장 / 공유 ---------- */
+function save() { safe(() => localStorage.setItem(DATA_STORE, JSON.stringify(trip))); }
+function encodeTrip() { return btoa(unescape(encodeURIComponent(JSON.stringify(trip)))); }
+function decodeTrip(s) { return JSON.parse(decodeURIComponent(escape(atob(s)))); }
+function loadInitial() {
+  const h = location.hash.slice(1);
+  if (h.startsWith('t=')) { const t = safe(() => decodeTrip(h.slice(2))); if (t?.stops) return t; }
+  const s = safe(() => JSON.parse(localStorage.getItem(DATA_STORE)));
+  return s?.stops ? s : trip;
+}
+
+/* ---------- API 로딩 ---------- */
+function showKeyBox(show) { $('#keyBox').style.display = show ? 'grid' : 'none'; }
+function loadMaps(key) {
+  return new Promise((resolve, reject) => {
+    window.__gmInit = resolve;
+    window.gm_authFailure = () => showError('Google Maps 인증 실패',
+      '키가 잘못됐거나, 이 주소(<code>' + esc(location.origin) + '/*</code>)가 키의 HTTP 리퍼러 제한에 없거나, Maps JavaScript API가 비활성화/결제 미설정 상태입니다. 자세한 원인은 개발자도구 콘솔을 확인하세요.');
+    const s = document.createElement('script');
+    s.src = `https://maps.googleapis.com/maps/api/js?key=${encodeURIComponent(key)}&v=weekly&loading=async&language=ko&callback=__gmInit`;
+    s.onerror = () => reject(new Error('Google Maps 스크립트를 불러오지 못했습니다(네트워크/차단 확인)'));
+    document.head.appendChild(s);
+  });
+}
+
+async function start(key) {
+  await loadMaps(key);
+  const { Map } = await google.maps.importLibrary('maps');
+  await google.maps.importLibrary('geocoding');
+  await google.maps.importLibrary('routes');
+
+  map = new Map($('#map'), { center:{lat:37.5665,lng:126.978}, zoom:12, styles:MAP_STYLES, disableDefaultUI:true, zoomControl:true, gestureHandling:'greedy', clickableIcons:false });
+  geocoder = new google.maps.Geocoder();
+  directions = new google.maps.DirectionsService();
+  routeRenderer = new google.maps.DirectionsRenderer({ map, suppressMarkers:true, preserveViewport:true, polylineOptions:{ strokeColor:ORANGE, strokeWeight:7, strokeOpacity:1 } });
+
+  // 장소 검색 (Places 자동완성) — 실패해도 지도는 계속 사용 가능
+  try { await initSearch(); } catch (err) {
+    console.error(err);
+    $('#searchBox').textContent = '장소 검색을 사용할 수 없습니다. 지도를 클릭해 추가하세요.';
+    showError('장소 검색(Places API New) 초기화 실패', 'Cloud Console에서 <b style="display:inline">Places API (New)</b>를 활성화했는지 확인하세요. 지도 클릭으로는 계속 추가할 수 있습니다.<br>' + esc(err.message));
+  }
+
+  map.addListener('click', async e => {
+    const ll = e.latLng;
+    let name = '선택한 지점', address = `${ll.lat().toFixed(5)}, ${ll.lng().toFixed(5)}`;
+    try {
+      const r = await geocoder.geocode({ location: ll });
+      if (r.results[0]) { address = r.results[0].formatted_address; name = address.split(',')[0]; }
+    } catch {}
+    addStop({ name, address, lat:ll.lat(), lng:ll.lng() });
+  });
+
+  render(true);
+}
+
+async function initSearch() {
+  const { PlaceAutocompleteElement } = await google.maps.importLibrary('places');
+  const ac = new PlaceAutocompleteElement();
+  ac.setAttribute('placeholder', '장소·주소 검색 후 선택하면 추가됩니다');
+  $('#searchBox').appendChild(ac);
+  const onSelect = async e => {
+    try {
+      const place = e.place ?? e.placePrediction?.toPlace();
+      await place.fetchFields({ fields:['displayName','formattedAddress','location'] });
+      addStop({ name:place.displayName, address:place.formattedAddress, lat:place.location.lat(), lng:place.location.lng() });
+      ac.value = '';
+      map.panTo(place.location);
+    } catch (err) { console.error(err); toast('장소 정보를 가져오지 못했습니다'); }
+  };
+  ac.addEventListener('gmp-select', onSelect);
+  ac.addEventListener('gmp-placeselect', onSelect);
+}
+
+/* ---------- 지점 조작 ---------- */
+function addStop(s) { trip.stops.push({ id:crypto.randomUUID(), memo:'', ...s }); render(); }
+function removeStop(i) { trip.stops.splice(i, 1); render(); }
+function moveStop(from, to) { const [s] = trip.stops.splice(from, 1); trip.stops.splice(to, 0, s); render(); }
+
+/* ---------- 렌더링 ---------- */
+function render(fit = false) {
+  save();
+  $('#title').value = trip.title || '';
+  $('#mode').value = trip.mode;
+  const list = $('#list');
+  if (!trip.stops.length) {
+    list.innerHTML = '<div class="empty">검색하거나 지도를 클릭해<br>방문할 장소를 추가해 보세요.<br>순서를 드래그해서 바꿀 수 있어요.</div>';
+  } else {
+    list.innerHTML = trip.stops.map((s, i) => `
+      <li class="stop" draggable="true" data-i="${i}">
+        <div class="num" title="드래그해서 순서 변경">${i + 1}</div>
+        <div class="info">
+          <div class="name" data-focus="${i}">${esc(s.name)}</div>
+          <div class="addr">${esc(s.address)}</div>
+          <input type="text" class="memo" data-memo="${i}" placeholder="메모 (예: 10시 입장, 예약필요)" value="${esc(s.memo)}">
+          <div class="leg" data-leg="${i}"></div>
+        </div>
+        <button class="x" data-del="${i}" title="삭제">×</button>
+      </li>`).join('');
+  }
+  drawMarkers(fit);
+  drawRoute();
+}
+
+function drawMarkers(fit) {
+  markers.forEach(m => m.setMap(null)); markers = [];
+  const bounds = new google.maps.LatLngBounds();
+  trip.stops.forEach((s, i) => {
+    const m = new google.maps.Marker({ map, position:{ lat:s.lat, lng:s.lng }, title:s.name, icon:markerIcon(i + 1), zIndex:100 + i });
+    markers.push(m); bounds.extend(m.getPosition());
+  });
+  if (fit && trip.stops.length) map.fitBounds(bounds, 60);
+  else if (trip.stops.length === 1) map.panTo(markers[0].getPosition());
+}
+
+function fmtDist(m) { return m >= 1000 ? (m / 1000).toFixed(1) + 'km' : m + 'm'; }
+function fmtTime(s) { const m = Math.round(s / 60); return m >= 60 ? `${Math.floor(m / 60)}시간 ${m % 60}분` : `${m}분`; }
+
+async function drawRoute() {
+  const n = trip.stops.length;
+  $('#sumText').textContent = `지점 ${n}개`;
+  $('#sumDist').textContent = '';
+  routeRenderer.setDirections({ routes: [] });
+  straightLine?.setMap(null); straightLine = null;
+  if (n < 2) return;
+
+  const pts = trip.stops.map(s => ({ lat:s.lat, lng:s.lng }));
+  const seq = ++drawRoute.seq || (drawRoute.seq = 1);
+  try {
+    // Directions는 경유지 최대 25개 제한 → 초과 시 직선 연결
+    if (n > 27) throw new Error('too many');
+    const res = await directions.route({
+      origin: pts[0], destination: pts[n - 1],
+      waypoints: pts.slice(1, -1).map(location => ({ location, stopover:true })),
+      travelMode: google.maps.TravelMode[trip.mode],
+    });
+    if (seq !== drawRoute.seq) return;
+    routeRenderer.setDirections(res);
+    let d = 0, t = 0;
+    res.routes[0].legs.forEach((l, i) => {
+      d += l.distance.value; t += l.duration.value;
+      const el = document.querySelector(`[data-leg="${i}"]`);
+      if (el) el.textContent = `↓ ${MODE_ICON[trip.mode]} ${l.distance.text} · ${l.duration.text}`;
+    });
+    $('#sumDist').innerHTML = `<b>${fmtDist(d)}</b> · <b>${fmtTime(t)}</b>`;
+  } catch (err) {
+    if (seq !== drawRoute.seq) return;
+    // 경로 계산 불가(해당 이동수단 미지원 등) → 직선 연결 + 직선거리
+    straightLine = new google.maps.Polyline({ map, path:pts, strokeColor:ORANGE, strokeOpacity:1, strokeWeight:7 });
+    let d = 0;
+    for (let i = 1; i < n; i++) d += haversine(pts[i - 1], pts[i]);
+    $('#sumDist').innerHTML = `직선 약 <b>${fmtDist(Math.round(d))}</b>`;
+    trip.stops.slice(0, -1).forEach((_, i) => {
+      const el = document.querySelector(`[data-leg="${i}"]`);
+      if (el) el.textContent = `↓ 직선 ${fmtDist(Math.round(haversine(pts[i], pts[i + 1])))}`;
+    });
+    if (n <= 27) toast('이 이동수단의 경로를 찾지 못해 직선으로 표시했어요');
+  }
+}
+function haversine(a, b) {
+  const R = 6371000, r = x => x * Math.PI / 180;
+  const h = Math.sin(r(b.lat - a.lat) / 2) ** 2 + Math.cos(r(a.lat)) * Math.cos(r(b.lat)) * Math.sin(r(b.lng - a.lng) / 2) ** 2;
+  return 2 * R * Math.asin(Math.sqrt(h));
+}
+
+/* ---------- 이벤트 ---------- */
+const list = $('#list');
+list.addEventListener('click', e => {
+  const del = e.target.closest('[data-del]'); if (del) return removeStop(+del.dataset.del);
+  const f = e.target.closest('[data-focus]');
+  if (f) { const s = trip.stops[+f.dataset.focus]; map.panTo({ lat:s.lat, lng:s.lng }); map.setZoom(Math.max(map.getZoom(), 15)); }
+});
+list.addEventListener('input', e => {
+  const m = e.target.closest('[data-memo]'); if (m) { trip.stops[+m.dataset.memo].memo = m.value; save(); }
+});
+list.addEventListener('dragstart', e => { const li = e.target.closest('li.stop'); if (li) { dragIdx = +li.dataset.i; e.dataTransfer.effectAllowed = 'move'; } });
+list.addEventListener('dragover', e => { const li = e.target.closest('li.stop'); if (li && dragIdx !== null) { e.preventDefault(); li.classList.add('over'); } });
+list.addEventListener('dragleave', e => e.target.closest('li.stop')?.classList.remove('over'));
+list.addEventListener('drop', e => {
+  e.preventDefault();
+  const li = e.target.closest('li.stop');
+  if (li && dragIdx !== null && +li.dataset.i !== dragIdx) moveStop(dragIdx, +li.dataset.i);
+  dragIdx = null;
+});
+list.addEventListener('dragend', () => { dragIdx = null; document.querySelectorAll('.over').forEach(x => x.classList.remove('over')); });
+
+$('#title').addEventListener('input', e => { trip.title = e.target.value; save(); });
+$('#mode').addEventListener('change', e => { trip.mode = e.target.value; save(); drawRoute(); });
+$('#reverse').addEventListener('click', () => { trip.stops.reverse(); render(); });
+
+// 최근접 이웃 방식의 간단한 순서 최적화 (첫 지점 고정)
+$('#optimize').addEventListener('click', () => {
+  const s = trip.stops; if (s.length < 4) return toast('지점이 4개 이상일 때 사용할 수 있어요');
+  const first = s[0], last = s[s.length - 1], mid = s.slice(1, -1), out = [first];
+  let cur = first;
+  while (mid.length) {
+    let bi = 0, bd = Infinity;
+    mid.forEach((p, i) => { const d = haversine(cur, p); if (d < bd) { bd = d; bi = i; } });
+    cur = mid.splice(bi, 1)[0]; out.push(cur);
+  }
+  out.push(last); trip.stops = out; render(); toast('중간 지점 순서를 최적화했어요');
+});
+
+function gmapsUrl() {
+  const s = trip.stops; if (s.length < 2) return null;
+  const p = x => `${x.lat},${x.lng}`;
+  const q = new URLSearchParams({ api:'1', origin:p(s[0]), destination:p(s[s.length - 1]), travelmode:trip.mode.toLowerCase() });
+  if (s.length > 2) q.set('waypoints', s.slice(1, -1).map(p).join('|'));
+  return 'https://www.google.com/maps/dir/?' + q;
+}
+$('#openGmaps').addEventListener('click', () => { const u = gmapsUrl(); u ? window.open(u, '_blank', 'noopener') : toast('지점을 2개 이상 추가하세요'); });
+
+$('#share').addEventListener('click', async () => {
+  const url = location.origin + location.pathname + '#t=' + encodeTrip();
+  try { await navigator.clipboard.writeText(url); toast('공유 링크를 복사했어요 (API 키는 포함되지 않아요)'); }
+  catch { prompt('링크를 복사하세요', url); }
+});
+$('#export').addEventListener('click', () => {
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([JSON.stringify(trip, null, 2)], { type:'application/json' }));
+  a.download = (trip.title || 'trip') + '.json'; a.click(); URL.revokeObjectURL(a.href);
+});
+$('#import').addEventListener('click', () => $('#file').click());
+$('#file').addEventListener('change', async e => {
+  const f = e.target.files[0]; if (!f) return;
+  try { const t = JSON.parse(await f.text()); if (!Array.isArray(t.stops)) throw 0; trip = { title:'', mode:'WALKING', ...t }; render(true); toast('불러왔어요'); }
+  catch { toast('올바른 파일이 아니에요'); }
+  e.target.value = '';
+});
+$('#clear').addEventListener('click', () => { if (confirm('모든 지점을 삭제할까요?')) { trip.stops = []; render(); } });
+
+$('#changeKey').addEventListener('click', () => { $('#keyInput').value = safe(() => localStorage.getItem(KEY_STORE)) || ''; showKeyBox(true); });
+$('#keyCancel').addEventListener('click', () => showKeyBox(false));
+$('#keySave').addEventListener('click', () => {
+  const k = $('#keyInput').value.trim(); if (!k) return;
+  safe(() => localStorage.setItem(KEY_STORE, k));
+  location.reload();
+});
+
+/* ---------- 시작 ---------- */
+trip = loadInitial();
+const key = safe(() => localStorage.getItem(KEY_STORE));
+if (key) start(key).catch(err => { console.error(err); showError('지도를 불러오지 못했습니다', esc(err?.message || err)); });
+else showKeyBox(true);
+</script>
+</body>
+</html>
