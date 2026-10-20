@@ -142,6 +142,7 @@
 <div id="toast"></div>
 <input type="file" id="file" accept="application/json" hidden>
 
+<script src="config.js"></script>
 <script>
 const $ = s => document.querySelector(s);
 const KEY_STORE = 'tripoute.apikey', DATA_STORE = 'tripoute.trip';
@@ -160,7 +161,7 @@ const safe = fn => { try { return fn(); } catch { return null; } };
 const toast = msg => { const t=$('#toast'); t.textContent=msg; t.classList.add('show'); setTimeout(()=>t.classList.remove('show'),1800); };
 function showError(title, detail) {
   const e = $('#err');
-  e.innerHTML = `<b>⚠ ${esc(title)}</b>${detail}<br><button onclick="document.getElementById('changeKey').click()">API 키 다시 입력</button> <button onclick="this.parentElement.style.display='none'">닫기</button>`;
+  e.innerHTML = `<b>⚠ ${esc(title)}</b>${detail}<br>${SHARED_KEY ? '' : `<button onclick="document.getElementById('changeKey').click()">API 키 다시 입력</button> `}<button onclick="this.parentElement.style.display='none'">닫기</button>`;
   e.style.display = 'block';
 }
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -423,7 +424,9 @@ list.addEventListener('click', e => { if (e.target.closest('[data-focus]') && ma
 
 /* ---------- 시작 ---------- */
 trip = loadInitial();
-const key = safe(() => localStorage.getItem(KEY_STORE));
+const SHARED_KEY = (window.TRIPOUTE_API_KEY || '').trim();
+const key = SHARED_KEY || safe(() => localStorage.getItem(KEY_STORE));
+if (SHARED_KEY) $('#changeKey').style.display = 'none';
 if (key) start(key).catch(err => { console.error(err); showError('지도를 불러오지 못했습니다', esc(err?.message || err)); });
 else showKeyBox(true);
 </script>
