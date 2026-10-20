@@ -139,9 +139,12 @@ async function signup(request, env) {
   // 관리자 계정은 서버 비밀 코드(ADMIN_SETUP_CODE)를 아는 사람만 만들 수 있습니다.
   let role = 'user', status = 'pending';
   if (email === String(env.ADMIN_EMAIL || '').trim().toLowerCase()) {
-    const expected = String(env.ADMIN_SETUP_CODE || '');
+    // 붙여넣기로 섞인 앞뒤 공백/줄바꿈은 무시합니다.
+    const expected = String(env.ADMIN_SETUP_CODE || '').trim();
     if (!expected) return json({ error: '관리자 설정 코드(ADMIN_SETUP_CODE)가 서버에 설정되지 않았습니다.' }, 503);
-    const given = enc.encode(String(body?.setupCode ?? ''));
+    const givenText = String(body?.setupCode ?? '').trim();
+    if (!givenText) return json({ error: '관리자 설정 코드를 입력하세요. (“관리자 계정 만들기”를 눌러 코드 칸을 여세요)' }, 403);
+    const given = enc.encode(givenText);
     const want = enc.encode(expected);
     if (!safeEqual(given, want)) return json({ error: '관리자 설정 코드가 올바르지 않습니다.' }, 403);
     role = 'admin'; status = 'approved';
