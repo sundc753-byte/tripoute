@@ -45,7 +45,7 @@
   #saveState.bad { color:var(--danger); }
   /* 검색 */
   .search { padding:10px 18px 4px; }
-  gmp-place-autocomplete { width:100%; color-scheme:light dark; font-size:16px; }
+  gmp-place-autocomplete { width:100%; color-scheme:light dark; font-size:16px; border:1px solid var(--line); border-radius:12px; }   /* 구글 기본(검은 1px, 모서리 3px)을 앱 스타일에 맞춤 */
 
   /* 일자 탭 / 이동수단 */
   .days { display:flex; gap:6px; padding:10px 18px 6px; overflow-x:auto; scrollbar-width:none; }
@@ -210,11 +210,13 @@
     /* 지도 화면: 일자 칩 + 하단 요약 카드 */
     .app[data-tab="map"] .mapui { display:block; }
     .mapui { position:absolute; inset:0 0 var(--nav) 0; z-index:4; pointer-events:none; }
-    .maptop { position:absolute; top:calc(10px + env(safe-area-inset-top)); left:12px; right:12px; display:flex; flex-direction:column; gap:8px; pointer-events:none; }
-    #mapSearch { pointer-events:auto; background:var(--card); border-radius:14px; box-shadow:0 2px 10px rgba(0,0,0,.2); padding:4px; }
+    .maptop { position:absolute; top:calc(10px + env(safe-area-inset-top)); left:12px; right:12px; display:flex; flex-direction:column; gap:10px; pointer-events:none; }
+    #mapSearch { pointer-events:auto; }
+    #mapSearch gmp-place-autocomplete { color-scheme:light; background:#fff; border:0; border-radius:22px; box-shadow:0 2px 10px rgba(0,0,0,.22); }
     #mapDays { pointer-events:auto; display:flex; gap:6px; overflow-x:auto; scrollbar-width:none; padding:0 !important; }
     #mapDays::-webkit-scrollbar { display:none; }
-    #mapDays .chip { background:var(--card); color:var(--text); box-shadow:0 2px 8px rgba(0,0,0,.2); }
+    #mapDays { padding:2px 2px 6px !important; margin:-2px -2px -6px; }   /* 그림자가 잘리지 않도록 여백 확보 */
+    #mapDays .chip { background:var(--card); color:var(--text); box-shadow:0 2px 10px rgba(0,0,0,.22); }
     #mapDays .chip.on { background:var(--accent); color:#fff; }
     .mapcard { position:absolute; left:12px; right:12px; bottom:36px;   /* 지도 왼쪽 아래 구글 로고와 오른쪽 아래 출처 표시를 가리지 않도록 위로 띄움 */ background:var(--card); border-radius:18px; padding:12px 14px; box-shadow:0 4px 18px rgba(0,0,0,.22); pointer-events:auto; display:flex; align-items:center; gap:8px; }
     .mc-sum { flex:1; min-width:0; font-size:13px; font-weight:700; line-height:1.4; }
