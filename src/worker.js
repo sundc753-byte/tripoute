@@ -285,7 +285,8 @@ function cleanStops(raw) {
   const stops = [];
   for (const st of raw) {
     if (!inRange(st?.lat, -90, 90) || !inRange(st?.lng, -180, 180)) return null;
-    stops.push({ id: clip(st.id, 64) || crypto.randomUUID(), name: clip(st.name, 200), address: clip(st.address, 300), memo: clip(st.memo, 500), lat: st.lat, lng: st.lng });
+    stops.push({ id: clip(st.id, 64) || crypto.randomUUID(), name: clip(st.name, 200), address: clip(st.address, 300), memo: clip(st.memo, 500), lat: st.lat, lng: st.lng,
+                 placeId: clip(st.placeId, 200), category: clip(st.category, 40) });
   }
   return stops;
 }

@@ -17,7 +17,7 @@
   button, input, select { font-family:inherit; }
   .app { display:grid; grid-template-columns:400px 1fr; height:100vh; }
   aside { position:relative; background:var(--card); border-right:1px solid var(--line); display:flex; flex-direction:column; min-height:0; }
-  #map { width:100%; height:100%; }
+  #map { position:relative; width:100%; height:100%; overflow:hidden; }
   aside > :not(#list):not(#tripsPanel) { flex-shrink:0; }   /* 시트가 낮아도 헤더·탭·하단 버튼이 눌려 찌그러지지 않게 */
   button { padding:8px 12px; border:none; border-radius:10px; background:var(--soft); color:var(--text); cursor:pointer; font-size:13px; font-weight:500; }
   button:hover { filter:brightness(.97); }
@@ -92,6 +92,7 @@
   .more summary { cursor:pointer; color:var(--muted); font-size:12px; list-style:none; text-align:center; padding:2px; }
   .more summary::-webkit-details-marker { display:none; }
   .morebtns { display:flex; gap:6px; flex-wrap:wrap; margin-top:8px; }
+  .morebtns button.danger { color:var(--danger); }
   .morebtns button, .morebtns a { font-size:12px; padding:7px 10px; border-radius:9px; background:var(--soft); color:var(--text); text-decoration:none; font-weight:500; }
   .who { margin-top:8px; font-size:12px; color:var(--muted); text-align:center; word-break:break-all; }
 
@@ -128,10 +129,13 @@
   .it-acts button { padding:5px 9px; font-size:12px; }
   #tripItems .empty { margin-top:8px; }
 
+  .mnav, .mapui, #accountPane { display:none; }
+  .tag { display:inline-block; font-size:11px; font-weight:600; padding:1px 8px; border-radius:10px; background:var(--accent-soft); color:var(--accent); margin-bottom:4px; }
+
   /* 지도 정보창 */
-  #sheetHandle { display:none; }
   .iw { color:#191f28; font-family:-apple-system,"Apple SD Gothic Neo","Noto Sans KR",sans-serif; min-width:200px; }
   .iw-photo { display:block; width:100%; max-height:140px; object-fit:cover; border-radius:10px; margin-bottom:8px; }
+  .iw-tag { display:inline-block; font-size:11px; font-weight:600; padding:1px 8px; border-radius:10px; background:#fff1e3; color:#ff7a00; margin-bottom:4px; }
   .iw-title { font-weight:700; font-size:15px; line-height:1.3; }
   .iw-rating { color:#b45309; font-size:13px; margin-top:3px; }
   .iw-addr { color:#5f6368; font-size:12px; margin-top:4px; line-height:1.4; }
@@ -146,33 +150,58 @@
     .x { font-size:24px; padding:0 6px; }
   }
   @media (max-width:760px) {
+    :root { --nav:calc(58px + env(safe-area-inset-bottom)); }
     html, body { position:fixed; inset:0; width:100%; overflow:hidden; overscroll-behavior:none; background:var(--card); }
     .app { display:block; position:relative; height:100vh; height:100dvh; height:var(--app-h, 100dvh); }
-    #map { position:absolute; inset:0; }
-    aside { position:absolute; left:0; right:0; bottom:0; z-index:5; border:none; border-radius:22px 22px 0 0;
-            box-shadow:0 -6px 24px rgba(0,0,0,.18); transition:height .25s ease;
-            height:58%; overflow-y:auto; overscroll-behavior:contain; padding-bottom:env(safe-area-inset-bottom); }
-    aside[data-sheet="min"] { height:calc(150px + env(safe-area-inset-bottom)); }
-    aside[data-sheet="max"] { height:88%; }
-    #sheetHandle { display:block; width:100%; border:none; background:var(--card); border-radius:22px 22px 0 0; padding:10px 0 4px; touch-action:none; position:sticky; top:0; z-index:3; }
-    #sheetHandle span { display:block; width:40px; height:5px; border-radius:3px; background:var(--line); margin:0 auto; }
-    .head { padding:6px 16px 4px; }
+    #map { position:absolute !important; inset:0 0 var(--nav) 0; width:auto; height:auto; }   /* 구글 지도가 칸에 직접 넣는 position:relative보다 우선 */
+    aside { position:absolute; inset:0 0 var(--nav) 0; z-index:5; border:none; overflow-y:auto; overscroll-behavior:contain; }
+    body.kb #map, body.kb aside, body.kb .mapui { bottom:0; }
+    body.kb .mnav { display:none; }
+    /* 하단 탭에 따라 화면 전환 */
+    .app[data-tab="map"] aside { display:none; }
+    .app[data-tab="trips"] aside > :not(#tripsPanel) { display:none; }
+    .app[data-tab="account"] aside > :not(#accountPane) { display:none; }
+    .app[data-tab="account"] #accountPane { display:flex; }
+    #tripsPanel { position:static; flex:1; }
+    #openTrips { display:none; }
+    .head { padding:calc(12px + env(safe-area-inset-top)) 16px 4px; }
     .titleinput { font-size:20px !important; }
     .search, .days, .tools { padding-left:16px; padding-right:16px; }
     input[type=text], input[type=password], input[type=date], select { font-size:16px; }
     .ddate { font-size:13px !important; }
     #list { flex:none; overflow:visible; padding:0 16px 12px; }
-    .foot { position:sticky; bottom:0; z-index:3; padding:10px 16px calc(10px + env(safe-area-inset-bottom)); }
+    .foot { position:sticky; bottom:0; z-index:3; padding:10px 16px; }
     #err { left:12px; right:12px; top:12px; max-width:none; }
-    #toast { bottom:calc(170px + env(safe-area-inset-bottom)); }
-    #tripsPanel { border-radius:22px 22px 0 0; }
+    #toast { bottom:calc(var(--nav) + 16px); }
+    .panel-head { padding-top:calc(18px + env(safe-area-inset-top)); }
+    /* 하단 탭 */
+    .mnav { display:flex; position:absolute; left:0; right:0; bottom:0; z-index:8; height:var(--nav); padding-bottom:env(safe-area-inset-bottom); background:var(--card); border-top:1px solid var(--line); }
+    .mnav button { flex:1; background:none; border-radius:0; color:var(--muted); font-size:11px; font-weight:500; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:3px; padding:0; }
+    .mnav button.on { color:var(--accent); font-weight:700; }
+    /* 지도 화면: 일자 칩 + 하단 요약 카드 */
+    .app[data-tab="map"] .mapui { display:block; }
+    .mapui { position:absolute; inset:0 0 var(--nav) 0; z-index:4; pointer-events:none; }
+    #mapDays { position:absolute; top:calc(10px + env(safe-area-inset-top)); left:0; right:0; padding:0 12px; pointer-events:auto; display:flex; gap:6px; overflow-x:auto; scrollbar-width:none; }
+    #mapDays::-webkit-scrollbar { display:none; }
+    #mapDays .chip { background:var(--card); color:var(--text); box-shadow:0 2px 8px rgba(0,0,0,.2); }
+    #mapDays .chip.on { background:var(--accent); color:#fff; }
+    .mapcard { position:absolute; left:12px; right:12px; bottom:12px; background:var(--card); border-radius:18px; padding:12px 14px; box-shadow:0 4px 18px rgba(0,0,0,.22); pointer-events:auto; display:flex; align-items:center; gap:8px; }
+    .mc-sum { flex:1; min-width:0; font-size:13px; font-weight:700; line-height:1.4; }
+    .mapcard button { padding:10px 12px; flex:none; }
+    /* 내 정보 화면 */
+    #accountPane { padding:calc(18px + env(safe-area-inset-top)) 18px 18px; flex-direction:column; }
+    #accountPane h2 { margin:0 0 14px; font-size:22px; font-weight:700; letter-spacing:-.02em; }
+    #accountPane .more { margin:0; }
+    #accountPane .more summary { display:none; }
+    #accountPane > .who { margin:0 0 14px; padding:14px; border-radius:14px; background:var(--soft); font-size:14px; text-align:left; }
+    #accountPane .morebtns { flex-direction:column; }
+    #accountPane .morebtns button, #accountPane .morebtns a { display:block; width:100%; text-align:center; padding:14px; font-size:14px; }
   }
 </style>
 </head>
 <body>
-<div class="app">
-  <aside data-sheet="mid">
-    <button id="sheetHandle" aria-label="패널 열기/닫기"><span></span></button>
+<div class="app" data-tab="schedule">
+  <aside>
     <div id="tripsPanel" hidden>
       <div class="panel-head"><h2>내 여행</h2><button id="newTrip2" class="primary">＋ 새 여행</button><button id="closeTrips">닫기</button></div>
       <div class="tabs2">
@@ -223,8 +252,19 @@
         <div class="who" id="who"></div>
       </details>
     </footer>
+    <section id="accountPane"><h2>내 정보</h2></section>
   </aside>
   <div id="map"></div>
+  <div class="mapui" id="mapUi">
+    <nav class="days" id="mapDays" aria-label="일자"></nav>
+    <div class="mapcard"><div class="mc-sum" id="mapSum"></div><button id="mapToList">일정 보기</button><button class="primary" id="mapGmaps">구글맵</button></div>
+  </div>
+  <nav class="mnav" aria-label="하단 메뉴">
+    <button data-mtab="trips"><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="7" width="18" height="13" rx="2"/><path d="M9 7V5a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v2"/></svg>여행</button>
+    <button data-mtab="schedule" class="on"><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/></svg>일정</button>
+    <button data-mtab="map"><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 4 3 6v14l6-2 6 2 6-2V4l-6 2-6-2z"/><path d="M9 4v14M15 6v14"/></svg>지도</button>
+    <button data-mtab="account"><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 4-6 8-6s8 2 8 6"/></svg>내 정보</button>
+  </nav>
 </div>
 
 <div id="shareBox">
@@ -330,7 +370,7 @@ function flushSave() {
 }
 
 // 3-way 병합: base(내가 마지막으로 본 서버 상태) / local(내 현재 상태) / server(최신 서버 상태)
-const sameStop = (a, b) => a.name === b.name && a.address === b.address && a.memo === b.memo && a.lat === b.lat && a.lng === b.lng;
+const sameStop = (a, b) => a.name === b.name && a.address === b.address && a.memo === b.memo && a.lat === b.lat && a.lng === b.lng && (a.category || '') === (b.category || '');
 function mergeStops(baseS, localS, serverS) {
   const bMap = new Map(baseS.map(x => [x.id, x])), lMap = new Map(localS.map(x => [x.id, x]));
   // 서버 목록에서 시작: 내가 지운 것은 제거, 내가 고친 것은 내 내용으로
@@ -506,15 +546,14 @@ async function start(key) {
   }
 
   // 장소 아이콘: 탭하면 장소 정보 / 장소가 아닌 지점: 꾹 눌러야(또는 우클릭) 정보 팝업
-  const collapseSheet = () => { if (matchMedia('(max-width:760px)').matches) sheet.dataset.sheet = 'min'; };
   let suppressClickUntil = 0;
   map.addListener('click', e => {
     if (e.placeId) e.stop();                       // 구글 기본 정보창 대신 아래의 '경로에 추가' 정보창을 사용
     if (Date.now() < suppressClickUntil) return;   // 롱프레스 직후 따라오는 클릭은 무시
-    if (e.placeId) { showInfo(e.latLng, e.placeId); collapseSheet(); }
+    if (e.placeId) showInfo(e.latLng, e.placeId);
     else infoWindow?.close();                      // 빈 곳을 짧게 탭하면 열려 있던 팝업만 닫음
   });
-  map.addListener('rightclick', e => { showInfo(e.latLng); collapseSheet(); });
+  map.addListener('rightclick', e => showInfo(e.latLng));
 
   const overlay = new google.maps.OverlayView();   // 화면 좌표 → 위경도 변환용
   overlay.onAdd = overlay.draw = overlay.onRemove = () => {};
@@ -536,7 +575,6 @@ async function start(key) {
       suppressClickUntil = Date.now() + 700;
       navigator.vibrate?.(15);
       showInfo(ll);
-      collapseSheet();
     }, 550) };
   }, { capture:true });
   mapEl.addEventListener('pointermove', ev => { if (press && Math.hypot(ev.clientX - press.x, ev.clientY - press.y) > 10) cancelPress(); }, { capture:true });
@@ -554,8 +592,8 @@ async function initSearch() {
   const onSelect = async e => {
     try {
       const place = e.place ?? e.placePrediction?.toPlace();
-      await place.fetchFields({ fields:['displayName','formattedAddress','location'] });
-      addStop({ name:place.displayName, address:place.formattedAddress, lat:place.location.lat(), lng:place.location.lng() });
+      await place.fetchFields({ fields:['id', 'displayName', 'formattedAddress', 'location', 'primaryTypeDisplayName'] });
+      addStop({ name:place.displayName, address:place.formattedAddress, lat:place.location.lat(), lng:place.location.lng(), placeId:place.id || '', category:place.primaryTypeDisplayName || '' });
       ac.value = '';
       document.activeElement?.blur?.(); ac.shadowRoot?.activeElement?.blur?.();   // 모바일: 키보드를 내려 결과가 보이게
       map.panTo(place.location);
@@ -579,6 +617,7 @@ function shortAddress(result) {
 function buildInfoNode(info) {
   const card = el('div', 'iw');
   if (info.photo) { const img = el('img', 'iw-photo'); img.src = info.photo; img.alt = ''; card.appendChild(img); }
+  if (info.category) card.appendChild(el('div', 'iw-tag', info.category));
   card.appendChild(el('div', 'iw-title', info.name));
   if (info.rating) card.appendChild(el('div', 'iw-rating', `★ ${info.rating.toFixed(1)}` + (info.count ? ` (${info.count.toLocaleString()})` : '')));
   if (info.address) card.appendChild(el('div', 'iw-addr', info.address));
@@ -588,7 +627,7 @@ function buildInfoNode(info) {
   const add = el('button', 'iw-add', exists ? '이미 추가됨' : (trip.days.length > 1 ? `Day ${di + 1}에 추가` : '경로에 추가'));
   add.disabled = exists;
   add.addEventListener('click', () => {
-    addStop({ name:info.name, address:info.address || '', lat:info.lat, lng:info.lng });
+    addStop({ name:info.name, address:info.address || '', lat:info.lat, lng:info.lng, placeId:info.placeId || '', category:info.category || '' });
     infoWindow.close();
     toast(trip.days.length > 1 ? `Day ${di + 1}에 “${info.name}” 추가됨` : `“${info.name}” 추가됨`);
   });
@@ -611,8 +650,9 @@ async function showInfo(latLng, placeId) {
     if (placeId) {
       const { Place } = await google.maps.importLibrary('places');
       const place = new Place({ id:placeId });
-      await place.fetchFields({ fields:['displayName', 'formattedAddress', 'location', 'rating', 'userRatingCount', 'photos', 'googleMapsURI'] });
+      await place.fetchFields({ fields:['displayName', 'formattedAddress', 'location', 'rating', 'userRatingCount', 'photos', 'googleMapsURI', 'primaryTypeDisplayName'] });
       info = {
+        placeId, category:place.primaryTypeDisplayName || '',
         name:place.displayName, address:place.formattedAddress || '', lat:place.location.lat(), lng:place.location.lng(),
         rating:place.rating, count:place.userRatingCount, url:place.googleMapsURI,
         photo:place.photos?.[0]?.getURI({ maxWidth:560 }),
@@ -668,6 +708,7 @@ function stopHtml(s, di, i, last) {
     <div class="stop" draggable="true" data-d="${di}" data-i="${i}">
       <div class="num" style="background:${colorOf(di)}" title="드래그해서 순서 변경">${i + 1}</div>
       <div class="card info">
+        ${s.category ? `<span class="tag">${esc(s.category)}</span>` : ''}
         <div class="r1">
           <div class="name" data-focus="${di}:${i}">${esc(s.name)}</div>
           <div class="racts">
@@ -703,6 +744,17 @@ function renderList() {
   }).join('');
 }
 
+let sumTexts = {};
+function renderMapUi() {
+  const chips = [`<button class="chip ${view === 'all' ? 'on' : ''}" data-view="all">전체</button>`];
+  trip.days.forEach((d, i) => chips.push(`<button class="chip ${view === i ? 'on' : ''}" data-view="${i}">Day ${i + 1}${d.date ? `<small>${fmtMD(d.date)}</small>` : ''}</button>`));
+  $('#mapDays').innerHTML = chips.join('');
+  setMapSum();
+}
+function setMapSum() {
+  $('#mapSum').textContent = view === 'all' ? `${trip.days.length}일 · 장소 ${totalStops(trip)}곳` : `Day ${view + 1} · ${sumTexts[view] || trip.days[view].stops.length + '곳'}`;
+}
+
 function render(fit = false, persist = true) {
   if (persist) save();
   clampView();
@@ -717,7 +769,9 @@ function render(fit = false, persist = true) {
   $('#roCopy').hidden = trip.role !== 'editor';
   const range = dateRange(trip);
   $('#metaText').textContent = `${range ? range + ' · ' : ''}${trip.days.length}일 · 장소 ${totalStops(trip)}곳`;
+  sumTexts = {};
   renderTabs();
+  renderMapUi();
   renderList();
   if (!map) return;
   drawMarkers(fit);
@@ -791,12 +845,13 @@ async function drawRoute() {
       else if (leg) leg.textContent = `직선 ${fmtDist(Math.round(haversine(pts[i], pts[i + 1])))}`;
     });
     needed++; if (res.stats.some(Boolean)) found++;
-    if (sumEl) {
-      if (res.stats.every(Boolean)) sumEl.textContent = `${stops.length}곳 · ${MODE_LABEL[trip.mode]} ${fmtTime(t / 1000)} · ${fmtDist(d)}`;
-      else if (res.stats.some(Boolean)) sumEl.textContent = `${stops.length}곳 · 일부 구간은 직선`;
-      else sumEl.textContent = `${stops.length}곳 · 직선 약 ${fmtDist(Math.round(pts.slice(1).reduce((a, p, i) => a + haversine(pts[i], p), 0)))}`;
-    }
+    const sumText = res.stats.every(Boolean) ? `${stops.length}곳 · ${MODE_LABEL[trip.mode]} ${fmtTime(t / 1000)} · ${fmtDist(d)}`
+      : res.stats.some(Boolean) ? `${stops.length}곳 · 일부 구간은 직선`
+      : `${stops.length}곳 · 직선 약 ${fmtDist(Math.round(pts.slice(1).reduce((a, p, i) => a + haversine(pts[i], p), 0)))}`;
+    sumTexts[di] = sumText;
+    if (sumEl) sumEl.textContent = sumText;
   });
+  setMapSum();
   if (needed && !found) toast('이 지역·이동수단은 경로 데이터가 없어 직선으로 표시했어요');
 }
 function haversine(a, b) {
@@ -816,7 +871,7 @@ list.addEventListener('click', e => {
   const opt = e.target.closest('[data-opt]'); if (opt) { optimizeDay(+opt.dataset.opt); return; }
   const dd = e.target.closest('[data-delday]'); if (dd) return removeDay(+dd.dataset.delday);
   const f = e.target.closest('[data-focus]');
-  if (f) { const [d, i] = pair(f.dataset.focus), s = trip.days[d].stops[i]; map.panTo({ lat:s.lat, lng:s.lng }); map.setZoom(Math.max(map.getZoom(), 15)); }
+  if (f) { const [d, i] = pair(f.dataset.focus), s = trip.days[d].stops[i]; if (isMobile()) setTab('map', false); map.panTo({ lat:s.lat, lng:s.lng }); map.setZoom(Math.max(map.getZoom(), 15)); }
 });
 list.addEventListener('input', e => {
   const m = e.target.closest('[data-memo]'); if (m) { const [d, i] = pair(m.dataset.memo); trip.days[d].stops[i].memo = m.value; save(); }
@@ -900,7 +955,7 @@ $('#keySave').addEventListener('click', () => {
 });
 
 /* ---------- 여행 목록 (내 여행계획 / 공유받은 여행) ---------- */
-let tripLists = { mine:[], shared:[] }, tripTab = 'mine', sheetBeforePanel = null;
+let tripLists = { mine:[], shared:[] }, tripTab = 'mine';
 const fmtDate = ts => new Date(ts * 1000).toLocaleString('ko-KR', { month:'numeric', day:'numeric', hour:'2-digit', minute:'2-digit' });
 const tripSub = t => {
   const range = t.date_from ? (t.date_from === t.date_to ? fmtMD(t.date_from) : `${fmtMD(t.date_from)}–${fmtMD(t.date_to)}`) : '';
@@ -938,14 +993,14 @@ async function refreshTrips() {
 async function openPanel(tab) {
   if (tab) tripTab = tab;
   await flushSave();
-  if (matchMedia('(max-width:760px)').matches) { sheetBeforePanel = sheet.dataset.sheet; sheet.dataset.sheet = 'max'; }
   $('#tripsPanel').hidden = false;
+  if (isMobile()) setTab('trips');
   renderTripItems();
   refreshTrips();
 }
 function closePanel() {
   $('#tripsPanel').hidden = true;
-  if (sheetBeforePanel) { sheet.dataset.sheet = sheetBeforePanel; sheetBeforePanel = null; }
+  if (isMobile() && appEl.dataset.tab === 'trips') setTab('schedule');
 }
 $('#openTrips').addEventListener('click', () => openPanel());
 $('#closeTrips').addEventListener('click', closePanel);
@@ -1016,34 +1071,53 @@ $('#shareList').addEventListener('click', async e => {
   catch (err) { toast(err.message); }
 });
 
-/* ---------- 모바일 바텀시트 ---------- */
-const sheet = document.querySelector('aside'), SHEETS = ['min', 'mid', 'max'];
-const setSheet = d => { const i = Math.min(2, Math.max(0, SHEETS.indexOf(sheet.dataset.sheet) + d)); sheet.dataset.sheet = SHEETS[i]; };
-let touchY = null;
+/* ---------- 모바일: 하단 탭 (여행 / 일정 / 지도 / 내 정보) ---------- */
+const mq = matchMedia('(max-width:760px)');
+const isMobile = () => mq.matches;
+const appEl = document.querySelector('.app');
+function setTab(tab, fit = true) {
+  appEl.dataset.tab = tab;
+  document.querySelectorAll('.mnav button').forEach(b => b.classList.toggle('on', b.dataset.mtab === tab));
+  if (tab === 'map' && map) { google.maps.event.trigger(map, 'resize'); if (fit) drawMarkers(true); }
+  if (tab !== 'map') infoWindow?.close();
+}
+document.querySelector('.mnav').addEventListener('click', e => {
+  const b = e.target.closest('[data-mtab]'); if (!b) return;
+  if (b.dataset.mtab === 'trips') return openPanel();
+  $('#tripsPanel').hidden = true;
+  setTab(b.dataset.mtab);
+});
+$('#mapToList').addEventListener('click', () => setTab('schedule'));
+$('#mapGmaps').addEventListener('click', () => $('#openGmaps').click());
+$('#mapDays').addEventListener('click', e => {
+  const c = e.target.closest('[data-view]'); if (!c) return;
+  view = c.dataset.view === 'all' ? 'all' : +c.dataset.view;
+  render(true, false);
+});
+// '더보기' 메뉴는 모바일에서 '내 정보' 화면으로 옮겨 보여줌
+function layoutMore() {
+  const more = document.querySelector('.more');
+  const who = $('#who');
+  if (isMobile()) { $('#accountPane').append(who, more); more.open = true; }      // 내 정보 화면: 계정 → 메뉴 순서
+  else { more.append(who); document.querySelector('.foot').appendChild(more); more.open = false; if (appEl.dataset.tab !== 'schedule') setTab('schedule', false); }
+}
+mq.addEventListener('change', layoutMore); layoutMore();
+
 // 모바일 키보드: 브라우저가 화면을 위로 밀어 올리는 대신, 앱 높이를 '키보드를 뺀 보이는 영역'에 맞춘다
 if (window.visualViewport) {
   const vv = window.visualViewport;
   const fit = () => {
     document.documentElement.style.setProperty('--app-h', Math.round(vv.height) + 'px');
+    document.body.classList.toggle('kb', isMobile() && vv.height < window.innerHeight - 120);   // 키보드가 올라오면 하단 탭을 숨김
     if (vv.offsetTop || window.scrollY) window.scrollTo(0, 0);   // iOS가 밀어 올린 화면을 되돌림
   };
   vv.addEventListener('resize', fit); vv.addEventListener('scroll', fit); fit();
 }
-// 검색창을 누르면 시트를 최대로 펴고 검색창이 맨 위에 오도록 스크롤
+// 검색창을 누르면 검색창이 화면 맨 위에 오도록 스크롤
 $('#searchBox').addEventListener('focusin', () => {
-  if (!matchMedia('(max-width:760px)').matches) return;
-  sheet.dataset.sheet = 'max';
-  setTimeout(() => sheet.scrollTo({ top:Math.max(0, $('#searchBox').offsetTop - 44), behavior:'smooth' }), 260);
+  if (!isMobile()) return;
+  setTimeout(() => document.querySelector('aside').scrollTo({ top:Math.max(0, $('#searchBox').offsetTop - 8), behavior:'smooth' }), 260);
 });
-$('#sheetHandle').addEventListener('click', () => setSheet(sheet.dataset.sheet === 'max' ? -2 : 1));
-$('#sheetHandle').addEventListener('touchstart', e => { touchY = e.touches[0].clientY; }, { passive:true });
-$('#sheetHandle').addEventListener('touchend', e => {
-  if (touchY === null) return;
-  const dy = e.changedTouches[0].clientY - touchY; touchY = null;
-  if (Math.abs(dy) > 30) { setSheet(dy < 0 ? 1 : -1); e.preventDefault(); }
-});
-// 장소 이름을 누르면 지도가 보이도록 시트를 접음
-list.addEventListener('click', e => { if (e.target.closest('[data-focus]') && matchMedia('(max-width:760px)').matches) sheet.dataset.sheet = 'min'; });
 
 /* ---------- 로그인 사용자 ---------- */
 fetch('/api/auth/me', { cache:'no-store' }).then(async res => {
