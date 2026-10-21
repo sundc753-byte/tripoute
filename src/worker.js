@@ -477,8 +477,31 @@ async function tripsApi(request, env, url, session) {
 }
 
 /* ---------- 라우팅 ---------- */
+// 화면(index.html) 버전: 배포가 바뀌면 달라지는 값. 정적 파일의 ETag를 쓰고, 없으면 내용 해시를 씁니다.
+async function assetVersionOf(res) {
+  const etag = res.headers.get('ETag');
+  if (etag) return etag.replace(/^W\//, '').replace(/"/g, '');
+  return hex(await crypto.subtle.digest('SHA-256', await res.clone().arrayBuffer())).slice(0, 16);
+}
+let versionCache = { v: '', t: 0 };
+async function currentVersion(env, url) {
+  if (versionCache.v && Date.now() - versionCache.t < 30000) return versionCache.v;   // 30초 동안은 다시 계산하지 않음
+  const res = await env.ASSETS.fetch(new Request(new URL('/index.html', url), { method: 'GET' }));
+  versionCache = { v: res.ok ? await assetVersionOf(res) : '', t: Date.now() };
+  return versionCache.v;
+}
+
 async function serveAsset(env, url, assetPath) {
   const res = await env.ASSETS.fetch(new Request(new URL(assetPath, url), { method: 'GET' }));
+  if (assetPath === '/index.html' && res.ok) {
+    // 내려 주는 HTML에 이 화면의 버전을 박아 둡니다 → 앱이 "내가 열린 시점의 버전"을 정확히 알 수 있음
+    const version = await assetVersionOf(res);
+    versionCache = { v: version, t: Date.now() };
+    const html = (await res.text()).replace('<meta name="app-version" content="">', `<meta name="app-version" content="${version}">`);
+    const headers = securityHeaders(new Headers(res.headers));
+    ['content-length', 'etag', 'content-encoding'].forEach(h => headers.delete(h));
+    return new Response(html, { status: res.status, headers });
+  }
   return new Response(res.body, { status: res.status, headers: securityHeaders(new Headers(res.headers)) });
 }
 
@@ -492,6 +515,7 @@ async function handleApi(request, env, url) {
     if (!origin || new URL(origin).host !== url.host) return json({ error: '잘못된 요청 출처입니다.' }, 403);
   }
 
+  if (request.method === 'GET' && p === '/api/version') return json({ v: await currentVersion(env, url) });   // 새 화면이 배포됐는지 확인용(공개)
   if (request.method === 'POST' && p === '/api/auth/signup') return signup(request, env);
   if (request.method === 'POST' && p === '/api/auth/login') return login(request, env, url);
   if (request.method === 'POST' && p === '/api/auth/logout') return logout(request, env, url);

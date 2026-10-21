@@ -5,6 +5,7 @@
 <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)">
 <meta name="theme-color" content="#17191f" media="(prefers-color-scheme: dark)">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover">
+<meta name="app-version" content="">
 <title>나만의 여행경로</title>
 <style>
   :root { --bg:#fff; --card:#fff; --soft:#f4f5f7; --text:#191f28; --muted:#8b95a1; --line:#eceef1; --accent:#ff7a00; --accent-soft:#fff1e3; --danger:#e5484d; }
@@ -98,6 +99,11 @@
   #err { position:fixed; top:16px; right:16px; max-width:420px; background:#fff3f0; color:#7a1f10; border:1px solid #f3b5a8; border-radius:12px; padding:12px 14px; font-size:13px; line-height:1.55; z-index:15; display:none; box-shadow:0 4px 16px rgba(0,0,0,.15); }
   #err b { display:block; margin-bottom:4px; }
   #err button { margin-top:8px; background:#fff; }
+  #updateBar { position:fixed; left:12px; right:12px; top:calc(10px + env(safe-area-inset-top)); z-index:30; display:none; align-items:center; gap:10px; max-width:460px; margin:0 auto; padding:10px 12px 10px 16px; border-radius:16px; background:#191f28; color:#fff; box-shadow:0 6px 24px rgba(0,0,0,.3); font-size:14px; }
+  #updateBar.show { display:flex; }
+  #updateBar span { flex:1; font-weight:600; }
+  #updateBar button { flex:none; padding:8px 14px; }
+  #updateBar .later { background:none; color:#aab2bd; padding:8px 6px; }
   #toast { position:fixed; bottom:24px; left:50%; transform:translateX(-50%); background:#191f28; color:#fff; padding:10px 16px; border-radius:12px; font-size:13px; opacity:0; transition:.2s; pointer-events:none; z-index:20; max-width:90vw; }
   #toast.show { opacity:1; }
   #shareList { margin-top:12px; font-size:13px; }
@@ -299,6 +305,7 @@
     </div>
   </div>
 </div>
+<div id="updateBar" role="status"><span>새 버전이 나왔어요</span><button class="later" id="updateLater">나중에</button><button class="primary" id="updateNow">지금 업데이트</button></div>
 <div id="err"></div>
 <div id="toast"></div>
 <input type="file" id="file" accept="application/json" hidden>
@@ -1189,6 +1196,39 @@ if (window.visualViewport) {
   };
   vv.addEventListener('resize', fit); vv.addEventListener('scroll', fit); fit();
 }
+/* ---------- 새 버전 알림 (홈 화면 웹앱은 오래 켜 둔 채로 남아 있어 배포가 바뀌어도 옛 화면이 보임) ---------- */
+// 서버가 내려 준 HTML에 이 화면의 버전이 들어 있고(meta app-version), 서버의 현재 버전과 다르면 배너로 알립니다.
+const appVersion = () => document.querySelector('meta[name="app-version"]')?.content || '';
+async function checkUpdate() {
+  const mine = appVersion();
+  if (!mine || checkUpdate.busy) return;               // 로컬 개발 서버 등 버전이 없으면 건너뜀
+  checkUpdate.busy = true;
+  try {
+    const res = await fetch('/api/version', { cache:'no-store' });
+    if (!res.ok) return;
+    const { v } = await res.json();
+    if (v && v !== mine) $('#updateBar').classList.add('show');
+  } catch { /* 오프라인 등은 다음 확인 때 다시 */ }
+  finally { checkUpdate.busy = false; }
+}
+$('#updateNow').addEventListener('click', async () => {
+  const btn = $('#updateNow');
+  btn.disabled = true; btn.textContent = '저장 후 업데이트 중…';
+  await flushSave();                                   // 편집 중인 내용을 먼저 저장 (doSave는 실패해도 예외를 던지지 않고 상태 표시만 함)
+  if (saveTimer || saving || $('#saveState').classList.contains('bad')) {   // 저장이 끝나지 않았거나 실패했으면 새로 불러오지 않음 → 편집 내용 보호
+    btn.disabled = false; btn.textContent = '지금 업데이트';
+    return toast('저장이 끝나지 않아 업데이트를 멈췄어요. 잠시 후 다시 눌러 주세요');
+  }
+  location.replace(location.pathname + '?r=' + Date.now() + location.hash);   // 캐시를 피해 새로 불러옴
+});
+$('#updateLater').addEventListener('click', () => $('#updateBar').classList.remove('show'));
+addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') checkUpdate(); });   // 홈 화면에서 앱으로 돌아올 때
+addEventListener('pageshow', e => { if (e.persisted) checkUpdate(); });
+addEventListener('online', checkUpdate);
+setInterval(checkUpdate, 5 * 60 * 1000);
+setTimeout(checkUpdate, 4000);
+if (location.search.startsWith('?r=')) history.replaceState(null, '', location.pathname + location.hash);   // 업데이트 직후 주소의 캐시 방지용 꼬리를 정리
+
 /* ---------- 로그인 사용자 ---------- */
 fetch('/api/auth/me', { cache:'no-store' }).then(async res => {
   if (!res.ok) return location.replace('/login' + location.hash);
