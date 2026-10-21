@@ -40,7 +40,7 @@
   #collabText { color:var(--accent); font-weight:600; }
   #collabText[hidden] { display:none; }
   #saveState { white-space:nowrap; font-size:12px; }
-  .editbtn { flex:none; padding:7px 13px; font-size:13px; font-weight:600; }
+  .editbtn { flex:none; padding:6px 14px; font-size:13px; font-weight:600; }
   .editbtn.on { background:var(--accent); color:#fff; }
   #saveState.bad { color:var(--danger); }
   /* 검색 */
@@ -62,8 +62,10 @@
   .dtitle b { font-size:16px; font-weight:700; }
   .ddate { width:auto !important; padding:4px 8px !important; font-size:12px !important; color:var(--muted) !important; border-radius:8px !important; }
   .dsum { order:3; flex-basis:100%; font-size:12px; color:var(--muted); margin-top:-2px; }
-  .dacts { display:flex; gap:2px; margin-left:auto; }
-  .dacts button { background:none; color:var(--muted); padding:4px 7px; font-size:12px; }
+  .dacts { display:flex; margin-left:auto; }
+  .dedit { order:4; flex-basis:100%; display:none; gap:6px; flex-wrap:wrap; }
+  body.editing .dedit { display:flex; }
+  .dedit button { padding:6px 11px; font-size:12px; }
   .stop { display:flex; gap:10px; align-items:flex-start; }
   .stop.over .card { outline:2px dashed var(--accent); outline-offset:-2px; }
   .num { flex:none; width:24px; height:24px; border-radius:50%; background:var(--accent); color:#fff; font-size:12px; font-weight:700; display:grid; place-items:center; margin-top:12px; cursor:grab; }
@@ -239,7 +241,6 @@
       <div class="topline">
         <input type="text" id="title" class="titleinput" placeholder="여행 이름을 입력하세요" autocomplete="off">
         <button id="openTrips">내 여행</button>
-        <button id="editToggle" class="editbtn" aria-pressed="false">편집</button>
       </div>
       <div class="meta"><span id="metaText"></span><span class="metaright"><span id="collabText" hidden></span><span id="saveState"></span></span></div>
     </header>
@@ -803,8 +804,9 @@ function renderList() {
         <div class="dayhead">
           <div class="dtitle"><b>Day ${di + 1}</b><input type="date" class="ddate" data-date="${di}" value="${esc(d.date)}" aria-label="날짜"></div>
           <div class="dsum" data-daysum="${di}">${stops.length}곳</div>
-          <div class="dacts">
-            ${stops.length > 3 ? `<button data-opt="${di}" title="첫 장소와 마지막 장소를 고정하고 중간 순서를 최적화">최적화</button>` : ''}
+          <div class="dacts"><button class="editbtn ${editing ? 'on' : ''}" data-edit aria-pressed="${editing}">${editing ? '완료' : '편집'}</button></div>
+          <div class="dedit">
+            ${stops.length > 3 ? `<button data-opt="${di}" title="첫 장소와 마지막 장소를 고정하고 중간 순서를 최적화">순서 최적화</button>` : ''}
             ${stops.length > 1 ? `<button data-rev="${di}">역순</button>` : ''}
             ${trip.days.length > 1 ? `<button class="danger" data-delday="${di}">일자 삭제</button>` : ''}
           </div>
@@ -937,6 +939,7 @@ list.addEventListener('click', e => {
   const del = e.target.closest('[data-del]'); if (del) return removeStop(...pair(del.dataset.del));
   const up = e.target.closest('[data-up]'); if (up) { const [d, i] = pair(up.dataset.up); if (i > 0) moveStop(d, i, d, i - 1); return; }
   const dn = e.target.closest('[data-down]'); if (dn) { const [d, i] = pair(dn.dataset.down); if (i < trip.days[d].stops.length - 1) moveStop(d, i, d, i + 1); return; }
+  if (e.target.closest('[data-edit]')) return setEditing(!editing);
   const rev = e.target.closest('[data-rev]'); if (rev) { trip.days[+rev.dataset.rev].stops.reverse(); return render(); }
   const opt = e.target.closest('[data-opt]'); if (opt) { optimizeDay(+opt.dataset.opt); return; }
   const dd = e.target.closest('[data-delday]'); if (dd) return removeDay(+dd.dataset.delday);
@@ -1105,16 +1108,13 @@ $('#tripItems').addEventListener('click', async e => {
 });
 $('#roCopy').addEventListener('click', () => copyTrip(trip.id));
 
-// 편집 모드: 장소 카드의 일자 이동·위아래·삭제 버튼은 '편집'을 눌렀을 때만 보임
+// 편집 모드: 일자 머리말 오른쪽의 '편집'을 누르면 장소 카드의 일자 이동·위아래·삭제 버튼과 일자 작업(순서 최적화·역순·일자 삭제)이 나타남
 let editing = false;
 function setEditing(on) {
   editing = on;
   document.body.classList.toggle('editing', on);
-  $('#editToggle').textContent = on ? '완료' : '편집';
-  $('#editToggle').classList.toggle('on', on);
-  $('#editToggle').setAttribute('aria-pressed', String(on));
+  document.querySelectorAll('[data-edit]').forEach(b => { b.textContent = on ? '완료' : '편집'; b.classList.toggle('on', on); b.setAttribute('aria-pressed', String(on)); });
 }
-$('#editToggle').addEventListener('click', () => setEditing(!editing));
 
 // 공유 창 (이메일로 승인된 사용자와 함께 편집)
 let shareId = null;
