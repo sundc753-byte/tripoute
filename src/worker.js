@@ -291,10 +291,21 @@ function cleanStops(raw) {
   return stops;
 }
 
-// 저장된 데이터를 항상 { mode, days:[{id,date,stops}] } 형태로 맞춥니다. (일자 도입 전 데이터는 Day 1로 변환)
+// 저장된 데이터를 항상 { mode, days:[{id,date,stops,legModes}], v:2 } 형태로 맞춥니다.
+// - 일자 도입 전 데이터(stops만 있음)는 Day 1로 변환
+// - v:2 이전에는 기본 이동수단(mode)이 모든 구간에 적용됐으므로, 구간별 설정(legModes)으로 변환해 기존 경로를 그대로 유지
+//   (v:2부터는 구간의 기본값이 '직선'이고 mode는 쓰이지 않음)
 function normalizeData(data) {
-  if (Array.isArray(data?.days) && data.days.length) return { mode: data.mode || 'WALKING', days: data.days };
-  return { mode: data?.mode || 'WALKING', days: [{ id: 'day-1', date: '', stops: Array.isArray(data?.stops) ? data.stops : [] }] };
+  const mode = MODES.includes(data?.mode) ? data.mode : 'WALKING';
+  let days = Array.isArray(data?.days) && data.days.length ? data.days : [{ id: 'day-1', date: '', stops: Array.isArray(data?.stops) ? data.stops : [] }];
+  if (data?.v !== 2) {
+    days = days.map(d => {
+      const stops = Array.isArray(d.stops) ? d.stops : [], legModes = { ...(d.legModes || {}) };
+      stops.slice(0, -1).forEach((st, i) => { const k = `${st.id}>${stops[i + 1].id}`; if (!legModes[k]) legModes[k] = mode; });
+      return { ...d, legModes };
+    });
+  }
+  return { mode, days, v: 2 };
 }
 
 // 클라이언트가 보낸 여행 데이터를 검증/정리합니다. 잘못되면 null. (days 또는 예전 형식의 stops 모두 허용)
@@ -324,7 +335,7 @@ function sanitizeTrip(body) {
   const dates = days.map(d => d.date).filter(Boolean).sort();
   return {
     title: clip(body.title, 100).trim(),
-    data: JSON.stringify({ mode: MODES.includes(body.mode) ? body.mode : 'WALKING', days }),
+    data: JSON.stringify({ mode: MODES.includes(body.mode) ? body.mode : 'WALKING', days, v: 2 }),
     count, dayCount: days.length, dateFrom: dates[0] || '', dateTo: dates[dates.length - 1] || '',
   };
 }

@@ -51,11 +51,6 @@
   .chip small { margin-left:4px; font-weight:500; opacity:.8; }
   .chip.on { background:var(--accent); color:#fff; }
   .chip.add { background:none; border:1px dashed var(--line); color:var(--muted); }
-  .tools { padding:4px 18px 10px; }
-  .modes { display:flex; gap:4px; background:var(--soft); border-radius:12px; padding:3px; }
-  .modes button { flex:1; background:none; padding:7px 4px; font-size:12px; color:var(--muted); border-radius:9px; }
-  .modes button.on { background:var(--card); color:var(--text); font-weight:700; box-shadow:0 1px 3px rgba(0,0,0,.08); }
-
   /* 일정 */
   #list { overflow:auto; flex:1; padding:0 18px 12px; }
   .day { margin-top:8px; }
@@ -181,7 +176,7 @@
     #miniOpen { position:absolute; left:0; right:0; bottom:0; top:env(safe-area-inset-top); z-index:2; background:transparent; border-radius:0; padding:0; }
     .addplace { display:block; width:100%; margin-top:14px; padding:15px; border:1px dashed var(--accent); border-radius:14px; background:var(--accent-soft); color:var(--accent); font-weight:700; font-size:15px; }
     .titleinput { font-size:20px !important; }
-    .search, .days, .tools { padding-left:16px; padding-right:16px; }
+    .search, .days { padding-left:16px; padding-right:16px; }
     input[type=text], input[type=password], input[type=date], select { font-size:16px; }
     .ddate { font-size:13px !important; }
     #list { flex:none; overflow:visible; padding:0 16px 12px; }
@@ -242,14 +237,6 @@
     </header>
     <div class="search" id="searchBox"></div>
     <nav class="days" id="dayTabs" aria-label="일자"></nav>
-    <div class="tools">
-      <div class="modes" id="modeChips">
-        <button data-mode="WALKING">도보</button>
-        <button data-mode="TRANSIT">대중교통</button>
-        <button data-mode="DRIVING">자동차</button>
-        <button data-mode="BICYCLING">자전거</button>
-      </div>
-    </div>
     <div id="list"></div>
     <footer class="foot">
       <div class="actions">
@@ -320,7 +307,7 @@
 <script>
 const $ = s => document.querySelector(s);
 const KEY_STORE = 'tripoute.apikey', DATA_STORE = 'tripoute.trip', LAST_STORE = 'tripoute.lastTrip';
-const MODE_LABEL = { WALKING:'도보', TRANSIT:'대중교통', DRIVING:'자동차', BICYCLING:'자전거' };
+const MODE_LABEL = { STRAIGHT:'직선', WALKING:'도보', TRANSIT:'대중교통', DRIVING:'자동차', BICYCLING:'자전거' };
 const ORANGE = '#ff7a00';
 const DAY_COLORS = [ORANGE, '#2f80ed', '#27ae60', '#9b51e0', '#eb5757', '#00a3a3'];   // '전체' 보기에서 일자별 색
 const dayColor = i => DAY_COLORS[i % DAY_COLORS.length];
@@ -347,9 +334,15 @@ const daysFrom = t => (Array.isArray(t?.days) && t.days.length
   ? t.days.map(d => ({ id:d.id || crypto.randomUUID(), date:d.date || '', stops:withIds(d.stops), legModes:{ ...(d.legModes || {}) } }))
   : [{ ...newDay(), stops:withIds(t?.stops) }]);
 
-/* 구간별 이동수단: day.legModes = { '출발장소id>도착장소id': 'DRIVING' } — 기본 이동수단(trip.mode)과 다르게 고른 구간만 저장 */
+/* 구간별 이동수단: day.legModes = { '출발장소id>도착장소id': 'DRIVING' } — 직접 고른 구간만 저장(없으면 직선) */
 const legKey = (a, b) => `${a.id}>${b.id}`;
-const legModeOf = (day, i) => day.legModes?.[legKey(day.stops[i], day.stops[i + 1])] || trip.mode;
+const legModeOf = (day, i) => day.legModes?.[legKey(day.stops[i], day.stops[i + 1])] || 'STRAIGHT';   // 기본은 직선, 구간마다 직접 설정
+// 예전 형식(v:2 이전)은 기본 이동수단이 모든 구간에 적용돼 있었으므로, 구간별 설정으로 바꿔 기존 경로를 유지
+function convertLegacyMode(days, mode) {
+  days.forEach(d => d.stops.slice(0, -1).forEach((x, i) => { const k = legKey(x, d.stops[i + 1]); if (!d.legModes[k]) d.legModes[k] = mode || 'WALKING'; }));
+  return days;
+}
+const importDays = t => (t?.v === 2 ? daysFrom(t) : convertLegacyMode(daysFrom(t), t?.mode));
 function pruneLegModes(day) {   // 지금 서로 이웃한 장소 쌍의 설정만 남김
   const keep = new Set(day.stops.slice(0, -1).map((x, i) => legKey(x, day.stops[i + 1])));
   for (const k of Object.keys(day.legModes || {})) if (!keep.has(k)) delete day.legModes[k];
@@ -543,7 +536,7 @@ async function initTrip() {
   const has = x => x && (x.stops?.length || x.days?.some(d => d.stops?.length));
   const imported = has(fromLink) ? fromLink : (has(legacy) ? legacy : null);
   if (imported) {
-    trip = { ...blankTrip(), title:imported.title || '', mode:imported.mode || 'WALKING', days:daysFrom(imported) };
+    trip = { ...blankTrip(), title:imported.title || '', days:importDays(imported) };
     safe(() => localStorage.removeItem(DATA_STORE));
     if (fromLink) history.replaceState(null, '', location.pathname);
     save(); return;
@@ -767,7 +760,7 @@ function legHtml(di, i) {
   const custom = !!day.legModes[key], id = `${di}:${i}`;
   const txt = legTexts[`${key}|${mode}`] || MODE_LABEL[mode];
   const picker = openLeg === id
-    ? `<div class="legpick">${Object.entries(MODE_LABEL).map(([m, l]) => `<button class="${m === mode ? 'on' : ''}" data-legset="${id}:${m}">${l}</button>`).join('')}${custom ? `<button class="reset" data-legset="${id}:DEFAULT">기본값</button>` : ''}</div>` : '';
+    ? `<div class="legpick">${Object.entries(MODE_LABEL).filter(([m]) => m !== 'STRAIGHT').map(([m, l]) => `<button class="${m === mode ? 'on' : ''}" data-legset="${id}:${m}">${l}</button>`).join('')}${custom ? `<button class="reset" data-legset="${id}:DEFAULT">기본값</button>` : ''}</div>` : '';
   return `<div class="leg" data-leg="${id}"><button class="legbtn ${custom ? 'cu' : ''}" data-legopen="${id}" aria-label="이동수단 변경"><span class="legtxt">${esc(txt)}</span> ▾</button></div>${picker}`;
 }
 function stopHtml(s, di, i, last) {
@@ -827,7 +820,6 @@ function render(fit = false, persist = true) {
   if (persist) { save(); openLeg = null; }
   clampView();
   if (document.activeElement !== $('#title')) $('#title').value = trip.title || '';
-  document.querySelectorAll('#modeChips button').forEach(b => b.classList.toggle('on', b.dataset.mode === trip.mode));
   $('#share').hidden = trip.role !== 'owner';
   const collab = isCollab(trip);
   $('#roBanner').hidden = !collab;
@@ -883,33 +875,34 @@ async function drawRoute() {
   routeLines.forEach(l => l.setMap(null)); routeLines = [];
   const seq = ++drawRoute.seq || (drawRoute.seq = 1);
   const shown = groups();
+  // 직선(기본)은 계산하지 않고, 직접 이동수단을 고른 구간만 경로를 계산
   const results = await Promise.all(shown.map(({ di, stops }) => (stops.length >= 2
-    ? Promise.all(stops.slice(0, -1).map((a, i) => routeLeg(a, stops[i + 1], legModeOf(trip.days[di], i)))) : null)));
+    ? Promise.all(stops.slice(0, -1).map((a, i) => { const m = legModeOf(trip.days[di], i); return m === 'STRAIGHT' ? null : routeLeg(a, stops[i + 1], m); })) : null)));
   if (seq !== drawRoute.seq) return;
-  let needed = 0, found = 0;
+  let attempted = 0, found = 0;
   shown.forEach(({ di, stops }, gi) => {
     const legs = results[gi], sumEl = document.querySelector(`[data-daysum="${di}"]`);
     if (!legs) { if (sumEl) sumEl.textContent = `${stops.length}곳`; return; }
-    let d = 0, t = 0, ok = 0, straight = 0;
+    let dist = 0, time = 0, routed = 0, straight = 0;
     legs.forEach((leg, i) => {
       const a = stops[i], b = stops[i + 1], mode = legModeOf(trip.days[di], i);
-      const path = leg ? leg.path : [{ lat:a.lat, lng:a.lng }, { lat:b.lat, lng:b.lng }];   // 데이터가 없으면 직선
-      routeLines.push(new google.maps.Polyline({ map, path, strokeColor:colorOf(di), strokeOpacity:1, strokeWeight:7, zIndex:1 }));
+      const path = leg ? leg.path : [{ lat:a.lat, lng:a.lng }, { lat:b.lat, lng:b.lng }];
+      routeLines.push(new google.maps.Polyline({ map, path, strokeColor:colorOf(di), strokeOpacity:leg ? 1 : .85, strokeWeight:leg ? 7 : 4, zIndex:1 }));
+      if (mode !== 'STRAIGHT') attempted++;
       let text;
-      if (leg) { d += leg.dist; t += leg.dur; ok++; text = `${MODE_LABEL[mode]} ${fmtTime(leg.dur / 1000)} · ${fmtDist(leg.dist)}`; }
-      else { const m = Math.round(haversine(a, b)); straight += m; text = `${MODE_LABEL[mode]} · 직선 ${fmtDist(m)}`; }
+      if (leg) { dist += leg.dist; time += leg.dur; routed++; found++; text = `${MODE_LABEL[mode]} ${fmtTime(leg.dur / 1000)} · ${fmtDist(leg.dist)}`; }
+      else { const m = Math.round(haversine(a, b)); dist += m; straight++; text = mode === 'STRAIGHT' ? `직선 ${fmtDist(m)}` : `${MODE_LABEL[mode]} · 직선 ${fmtDist(m)}`; }
       legTexts[`${legKey(a, b)}|${mode}`] = text;
       const el = document.querySelector(`[data-leg="${di}:${i}"] .legtxt`); if (el) el.textContent = text;
     });
-    needed++; if (ok) found++;
-    const sumText = ok === legs.length ? `${stops.length}곳 · 이동 ${fmtTime(t / 1000)} · ${fmtDist(d)}`
-      : ok ? `${stops.length}곳 · 일부 구간은 직선`
-      : `${stops.length}곳 · 직선 약 ${fmtDist(straight)}`;
+    // 요약: 거리는 직선 구간과 경로 구간을 합치고, 시간은 이동수단을 정한 구간만 합산
+    const distText = !routed ? `직선 ${fmtDist(dist)}` : straight ? `${fmtDist(dist)}(직선 ${straight}구간 포함)` : fmtDist(dist);
+    const sumText = `${stops.length}곳 · ${distText}` + (routed ? ` · 이동 ${fmtTime(time / 1000)}${straight ? `(${routed}구간)` : ''}` : '');
     sumTexts[di] = sumText;
     if (sumEl) sumEl.textContent = sumText;
   });
   setMapSum();
-  if (needed && !found) toast('이 지역·이동수단은 경로 데이터가 없어 직선으로 표시했어요');
+  if (attempted && !found) toast('이 지역·이동수단은 경로 데이터가 없어 직선으로 표시했어요');
 }
 function haversine(a, b) {
   const R = 6371000, r = x => x * Math.PI / 180;
@@ -968,10 +961,6 @@ $('#dayTabs').addEventListener('click', e => {
   render(true, false);
 });
 $('#title').addEventListener('input', e => { trip.title = e.target.value; save(); });
-$('#modeChips').addEventListener('click', e => {
-  const b = e.target.closest('[data-mode]'); if (!b) return;
-  trip.mode = b.dataset.mode; save(); render(false, false);
-});
 
 // 최근접 이웃 방식의 간단한 순서 최적화 (첫·마지막 장소 고정)
 function optimizeDay(di) {
@@ -987,11 +976,12 @@ function optimizeDay(di) {
 }
 
 function gmapsUrl() {
-  // 보고 있는 일자 기준 (전체 보기에서는 장소가 2곳 이상인 첫 일자). 구글맵 링크는 이동수단을 하나만 받으므로 구간이 모두 같을 때만 그 수단, 섞여 있으면 기본 이동수단을 씁니다.
+  // 보고 있는 일자 기준 (전체 보기에서는 장소가 2곳 이상인 첫 일자). 구글맵 링크는 이동수단을 하나만 받으므로,
+  // 직접 정한 구간 수단이 모두 같으면 그 수단으로, 아니면(또는 모두 직선이면) 도보로 엽니다.
   const g = groups().find(x => x.stops.length >= 2); if (!g) return null;
   const s = g.stops, p = x => `${x.lat},${x.lng}`;
   const modes = new Set(s.slice(0, -1).map((_, i) => legModeOf(trip.days[g.di], i)));
-  const mode = modes.size === 1 ? [...modes][0] : trip.mode;
+  const mode = modes.size === 1 && !modes.has('STRAIGHT') ? [...modes][0] : 'WALKING';
   const q = new URLSearchParams({ api:'1', origin:p(s[0]), destination:p(s[s.length - 1]), travelmode:mode.toLowerCase() });
   if (s.length > 2) q.set('waypoints', s.slice(1, -1).map(p).join('|'));
   return 'https://www.google.com/maps/dir/?' + q;
@@ -1001,7 +991,7 @@ $('#openGmaps').addEventListener('click', () => { const u = gmapsUrl(); u ? wind
 $('#share').addEventListener('click', () => openShare(null));
 $('#export').addEventListener('click', () => {
   const a = document.createElement('a');
-  a.href = URL.createObjectURL(new Blob([JSON.stringify({ title:trip.title, mode:trip.mode, days:trip.days }, null, 2)], { type:'application/json' }));
+  a.href = URL.createObjectURL(new Blob([JSON.stringify({ v:2, title:trip.title, days:trip.days }, null, 2)], { type:'application/json' }));
   a.download = (trip.title || 'trip') + '.json'; a.click(); URL.revokeObjectURL(a.href);
 });
 $('#import').addEventListener('click', () => $('#file').click());
@@ -1010,7 +1000,7 @@ $('#file').addEventListener('change', async e => {
   try {
     const t = JSON.parse(await f.text());
     if (!Array.isArray(t.stops) && !Array.isArray(t.days)) throw 0;
-    trip.title = t.title || trip.title; trip.mode = t.mode || trip.mode; trip.days = daysFrom(t); view = 0;
+    trip.title = t.title || trip.title; trip.days = importDays(t); view = 0;
     render(true); toast('불러왔어요');
   } catch { toast('올바른 파일이 아니에요'); }
   e.target.value = '';
