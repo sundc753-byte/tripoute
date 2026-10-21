@@ -87,7 +87,10 @@ function ensureSchema(env) {
       created_at INTEGER NOT NULL,
       updated_at INTEGER NOT NULL,
       version INTEGER NOT NULL DEFAULT 1,
-      updated_by INTEGER
+      updated_by INTEGER,
+      day_count INTEGER NOT NULL DEFAULT 1,
+      date_from TEXT NOT NULL DEFAULT '',
+      date_to TEXT NOT NULL DEFAULT ''
     )`),
     env.DB.prepare(`CREATE TABLE IF NOT EXISTS trip_shares (
       trip_id TEXT NOT NULL,
@@ -103,6 +106,9 @@ function ensureSchema(env) {
     const cols = results.map(c => c.name), alters = [];
     if (!cols.includes('version')) alters.push(env.DB.prepare('ALTER TABLE trips ADD COLUMN version INTEGER NOT NULL DEFAULT 1'));
     if (!cols.includes('updated_by')) alters.push(env.DB.prepare('ALTER TABLE trips ADD COLUMN updated_by INTEGER'));
+    if (!cols.includes('day_count')) alters.push(env.DB.prepare('ALTER TABLE trips ADD COLUMN day_count INTEGER NOT NULL DEFAULT 1'));
+    if (!cols.includes('date_from')) alters.push(env.DB.prepare("ALTER TABLE trips ADD COLUMN date_from TEXT NOT NULL DEFAULT ''"));
+    if (!cols.includes('date_to')) alters.push(env.DB.prepare("ALTER TABLE trips ADD COLUMN date_to TEXT NOT NULL DEFAULT ''"));
     if (alters.length) await env.DB.batch(alters);
   }).catch(err => { schemaReady = null; throw err; });
   return schemaReady;
@@ -271,18 +277,47 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 const clip = (v, max) => String(v ?? '').slice(0, max);
 const inRange = (v, min, max) => typeof v === 'number' && Number.isFinite(v) && v >= min && v <= max;
 
-// 클라이언트가 보낸 여행 데이터를 검증/정리합니다. 잘못되면 null.
-function sanitizeTrip(body) {
-  if (!body || typeof body !== 'object' || !Array.isArray(body.stops) || body.stops.length > 100) return null;
+const MAX_DAYS = 30, MAX_STOPS_PER_TRIP = 200;
+const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+
+function cleanStops(raw) {
+  if (!Array.isArray(raw)) return null;
   const stops = [];
-  for (const st of body.stops) {
+  for (const st of raw) {
     if (!inRange(st?.lat, -90, 90) || !inRange(st?.lng, -180, 180)) return null;
     stops.push({ id: clip(st.id, 64) || crypto.randomUUID(), name: clip(st.name, 200), address: clip(st.address, 300), memo: clip(st.memo, 500), lat: st.lat, lng: st.lng });
   }
+  return stops;
+}
+
+// 저장된 데이터를 항상 { mode, days:[{id,date,stops}] } 형태로 맞춥니다. (일자 도입 전 데이터는 Day 1로 변환)
+function normalizeData(data) {
+  if (Array.isArray(data?.days) && data.days.length) return { mode: data.mode || 'WALKING', days: data.days };
+  return { mode: data?.mode || 'WALKING', days: [{ id: 'day-1', date: '', stops: Array.isArray(data?.stops) ? data.stops : [] }] };
+}
+
+// 클라이언트가 보낸 여행 데이터를 검증/정리합니다. 잘못되면 null. (days 또는 예전 형식의 stops 모두 허용)
+function sanitizeTrip(body) {
+  if (!body || typeof body !== 'object') return null;
+  const rawDays = Array.isArray(body.days) ? body.days : (Array.isArray(body.stops) ? [{ stops: body.stops }] : null);
+  if (!rawDays || !rawDays.length || rawDays.length > MAX_DAYS) return null;
+  const days = [], seen = new Set();
+  let count = 0;
+  for (const d of rawDays) {
+    const stops = cleanStops(d?.stops);
+    if (!stops) return null;
+    count += stops.length;
+    let id = clip(d?.id, 64) || crypto.randomUUID();
+    if (seen.has(id)) id = crypto.randomUUID();
+    seen.add(id);
+    days.push({ id, date: DATE_RE.test(String(d?.date)) ? d.date : '', stops });
+  }
+  if (count > MAX_STOPS_PER_TRIP) return null;
+  const dates = days.map(d => d.date).filter(Boolean).sort();
   return {
     title: clip(body.title, 100).trim(),
-    data: JSON.stringify({ mode: MODES.includes(body.mode) ? body.mode : 'WALKING', stops }),
-    count: stops.length,
+    data: JSON.stringify({ mode: MODES.includes(body.mode) ? body.mode : 'WALKING', days }),
+    count, dayCount: days.length, dateFrom: dates[0] || '', dateTo: dates[dates.length - 1] || '',
   };
 }
 
@@ -302,8 +337,8 @@ async function createTrip(env, ownerId, clean, titleOverride) {
   const c = await env.DB.prepare('SELECT COUNT(*) AS c FROM trips WHERE owner_id = ?').bind(ownerId).first();
   if (c.c >= MAX_TRIPS_PER_USER) return null;
   const id = crypto.randomUUID(), t = now();
-  await env.DB.prepare('INSERT INTO trips (id, owner_id, title, data, stop_count, created_at, updated_at, version, updated_by) VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?)')
-    .bind(id, ownerId, titleOverride ?? clean.title, clean.data, clean.count, t, t, ownerId).run();
+  await env.DB.prepare('INSERT INTO trips (id, owner_id, title, data, stop_count, created_at, updated_at, version, updated_by, day_count, date_from, date_to) VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?)')
+    .bind(id, ownerId, titleOverride ?? clean.title, clean.data, clean.count, t, t, ownerId, clean.dayCount, clean.dateFrom, clean.dateTo).run();
   return { id, updated_at: t, version: 1 };
 }
 
@@ -319,12 +354,12 @@ async function tripsApi(request, env, url, session) {
     if (method === 'GET') {
       const [mine, shared] = await Promise.all([
         env.DB.prepare(
-          `SELECT t.id, t.title, t.stop_count, t.updated_at,
+          `SELECT t.id, t.title, t.stop_count, t.day_count, t.date_from, t.date_to, t.updated_at,
                   (SELECT COUNT(*) FROM trip_shares s WHERE s.trip_id = t.id) AS share_count
              FROM trips t WHERE t.owner_id = ? ORDER BY t.updated_at DESC`
         ).bind(session.id).all(),
         env.DB.prepare(
-          `SELECT t.id, t.title, t.stop_count, t.updated_at, u.email AS owner_email, s.created_at AS shared_at
+          `SELECT t.id, t.title, t.stop_count, t.day_count, t.date_from, t.date_to, t.updated_at, u.email AS owner_email, s.created_at AS shared_at
              FROM trip_shares s JOIN trips t ON t.id = s.trip_id JOIN users u ON u.id = t.owner_id
             WHERE s.user_id = ? ORDER BY s.created_at DESC`
         ).bind(session.id).all(),
@@ -352,13 +387,13 @@ async function tripsApi(request, env, url, session) {
       'SELECT u.id, u.email FROM trip_shares s JOIN users u ON u.id = s.user_id WHERE s.trip_id = ? ORDER BY s.created_at'
     ).bind(id).all();
     return json({ id: trip.id, title: trip.title, role: trip.role, owner_email: trip.owner_email, updated_at: trip.updated_at,
-                  version: trip.version, updated_by_email: trip.updated_by_email, shared_with: results, ...JSON.parse(trip.data) });
+                  version: trip.version, updated_by_email: trip.updated_by_email, shared_with: results, ...normalizeData(JSON.parse(trip.data)) });
   }
 
   // 복사 (소유자/공유받은 사용자 모두 자기 여행으로 복사 가능)
   if (action === 'copy' && method === 'POST') {
-    const data = JSON.parse(trip.data);
-    const clean = sanitizeTrip({ title: '', mode: data.mode, stops: data.stops });
+    const data = normalizeData(JSON.parse(trip.data));
+    const clean = sanitizeTrip({ title: '', mode: data.mode, days: data.days });
     const created = await createTrip(env, session.id, clean, clip((trip.title || '여행') + ' (복사본)', 100));
     return created ? json(created, 201) : json({ error: `여행은 최대 ${MAX_TRIPS_PER_USER}개까지 저장할 수 있습니다.` }, 409);
   }
@@ -377,13 +412,14 @@ async function tripsApi(request, env, url, session) {
     if (!clean || !Number.isInteger(body.base_version)) return json({ error: '여행 데이터가 올바르지 않습니다.' }, 400);
     const t = now();
     const res = await env.DB.prepare(
-      'UPDATE trips SET title = ?, data = ?, stop_count = ?, updated_at = ?, version = version + 1, updated_by = ? WHERE id = ? AND version = ?'
-    ).bind(clean.title, clean.data, clean.count, t, session.id, id, body.base_version).run();
+      `UPDATE trips SET title = ?, data = ?, stop_count = ?, day_count = ?, date_from = ?, date_to = ?,
+              updated_at = ?, version = version + 1, updated_by = ? WHERE id = ? AND version = ?`
+    ).bind(clean.title, clean.data, clean.count, clean.dayCount, clean.dateFrom, clean.dateTo, t, session.id, id, body.base_version).run();
     if (!res?.meta?.changes) {
       const cur = await loadTrip(env, id, session);
       if (!cur) return json({ error: '여행을 찾을 수 없습니다.' }, 404);
       return json({ error: '다른 사람이 먼저 수정했어요.', conflict: true,
-                    trip: { title: cur.title, version: cur.version, updated_by_email: cur.updated_by_email, ...JSON.parse(cur.data) } }, 409);
+                    trip: { title: cur.title, version: cur.version, updated_by_email: cur.updated_by_email, ...normalizeData(JSON.parse(cur.data)) } }, 409);
     }
     return json({ ok: true, version: body.base_version + 1, updated_at: t });
   }
