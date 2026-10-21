@@ -31,16 +31,18 @@
   /* 헤더 */
   .head { padding:16px 18px 6px; }
   .topline { display:flex; align-items:center; gap:8px; }
-  .titleinput { flex:1; min-width:0; border:none !important; background:none !important; padding:2px 0 !important; font-size:22px !important; font-weight:700; letter-spacing:-.02em; color:var(--text); }
+  .titleinput { flex:1; min-width:0; border:none !important; background:none !important; padding:2px 0 !important; font-size:26px !important; font-weight:700; letter-spacing:-.02em; line-height:1.25; color:var(--text); }
   .titleinput::placeholder { color:var(--muted); font-weight:600; }
   .titleinput:focus { outline:none; }
-  .meta { display:flex; justify-content:space-between; gap:8px; margin-top:2px; font-size:13px; color:var(--muted); min-height:20px; }
+  .meta { display:flex; justify-content:space-between; align-items:center; gap:8px; margin-top:2px; font-size:12px; color:var(--muted); min-height:18px; }
+  #metaText { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .metaright { display:flex; align-items:center; gap:8px; flex:none; white-space:nowrap; }
+  #collabText { color:var(--accent); font-weight:600; }
+  #collabText[hidden] { display:none; }
   #saveState { white-space:nowrap; font-size:12px; }
+  .editbtn { flex:none; padding:7px 13px; font-size:13px; font-weight:600; }
+  .editbtn.on { background:var(--accent); color:#fff; }
   #saveState.bad { color:var(--danger); }
-  .robanner { margin-top:10px; padding:9px 12px; border-radius:12px; background:var(--accent-soft); color:var(--text); font-size:13px; line-height:1.5; display:flex; gap:8px; align-items:center; justify-content:space-between; }
-  .robanner[hidden] { display:none; }
-  .robanner button { background:var(--card); padding:5px 9px; font-size:12px; white-space:nowrap; }
-
   /* 검색 */
   .search { padding:10px 18px 4px; }
   gmp-place-autocomplete { width:100%; color-scheme:light dark; font-size:16px; }
@@ -68,7 +70,10 @@
   .card.info { flex:1; min-width:0; border:1px solid var(--line); border-radius:14px; padding:10px 12px; background:var(--card); }
   .r1 { display:flex; gap:8px; align-items:flex-start; justify-content:space-between; }
   .name { font-weight:700; font-size:15px; cursor:pointer; line-height:1.35; min-width:0; word-break:break-word; }
-  .racts { display:flex; align-items:center; gap:4px; flex:none; }
+  .racts { display:none; align-items:center; gap:4px; flex:none; }
+  body.editing .racts { display:flex; }
+  body.editing .mv { display:inline-flex; gap:2px; }
+  body.editing .mv button { padding:0; width:26px; height:26px; line-height:1; font-size:11px; }
   .dsel { width:auto !important; padding:3px 6px !important; font-size:11px !important; border-radius:8px !important; color:var(--muted) !important; background:var(--soft) !important; border:none !important; }
   .memo { margin-top:6px; width:100%; border:none !important; background:var(--soft) !important; border-radius:8px !important; padding:7px 9px !important; font-size:13px !important; }
   .memo::placeholder { color:var(--muted); }
@@ -181,7 +186,7 @@
     #map.mini { position:relative !important; inset:auto; width:100%; height:190px; }
     #miniOpen { position:absolute; inset:0; z-index:2; background:transparent; border-radius:0; padding:0; }
     .addplace { display:block; width:100%; margin-top:14px; padding:15px; border:1px dashed var(--accent); border-radius:14px; background:var(--accent-soft); color:var(--accent); font-weight:700; font-size:15px; }
-    .titleinput { font-size:20px !important; }
+    .titleinput { font-size:26px !important; }
     .search, .days { padding-left:16px; padding-right:16px; }
     input[type=text], input[type=password], input[type=date], select { font-size:16px; }
     .ddate { font-size:13px !important; }
@@ -234,12 +239,9 @@
       <div class="topline">
         <input type="text" id="title" class="titleinput" placeholder="여행 이름을 입력하세요" autocomplete="off">
         <button id="openTrips">내 여행</button>
+        <button id="editToggle" class="editbtn" aria-pressed="false">편집</button>
       </div>
-      <div class="meta"><span id="metaText"></span><span id="saveState"></span></div>
-      <div class="robanner" id="roBanner" hidden>
-        <span id="roText"></span>
-        <button id="roCopy">내 것으로 복사</button>
-      </div>
+      <div class="meta"><span id="metaText"></span><span class="metaright"><span id="collabText" hidden></span><span id="saveState"></span></span></div>
     </header>
     <div class="search" id="searchBox"></div>
     <nav class="days" id="dayTabs" aria-label="일자"></nav>
@@ -252,6 +254,7 @@
       <details class="more">
         <summary>더보기</summary>
         <div class="morebtns">
+          <button id="roCopy" hidden>내 것으로 복사 (공유받은 여행)</button>
           <button id="newTrip">새 여행</button>
           <button id="export">내보내기</button>
           <button id="import">불러오기</button>
@@ -492,7 +495,7 @@ async function doSave() {
     throw new Error('충돌을 해결하지 못했어요');
   } catch (err) {
     console.warn('save failed', err);
-    if (trip === t) setSaveState('⚠ 저장 실패 — 재시도 중', true);
+    if (trip === t) setSaveState('⚠ 저장 실패', true);
     clearTimeout(retryTimer); retryTimer = setTimeout(() => { if (trip === t) save(); }, 8000);
   } finally { saving--; }
 }
@@ -828,10 +831,9 @@ function render(fit = false, persist = true) {
   if (document.activeElement !== $('#title')) $('#title').value = trip.title || '';
   $('#share').hidden = trip.role !== 'owner';
   const collab = isCollab(trip);
-  $('#roBanner').hidden = !collab;
-  if (collab) $('#roText').textContent = trip.role === 'editor'
-    ? `👥 ${trip.owner_email} 님과 공동 편집 중`
-    : `👥 ${trip.shared_with.length}명과 공동 편집 중`;
+  const ct = $('#collabText');
+  ct.hidden = !collab;
+  if (collab) { ct.textContent = trip.role === 'editor' ? '👥 공동 편집 중' : `👥 ${trip.shared_with.length}명과 공동 편집`; ct.title = trip.role === 'editor' ? `${trip.owner_email} 님의 여행` : ''; }
   $('#roCopy').hidden = trip.role !== 'editor';
   const range = dateRange(trip);
   $('#metaText').textContent = `${range ? range + ' · ' : ''}${trip.days.length}일 · 장소 ${totalStops(trip)}곳`;
@@ -1102,6 +1104,17 @@ $('#tripItems').addEventListener('click', async e => {
   } catch (err) { toast(err.message); }
 });
 $('#roCopy').addEventListener('click', () => copyTrip(trip.id));
+
+// 편집 모드: 장소 카드의 일자 이동·위아래·삭제 버튼은 '편집'을 눌렀을 때만 보임
+let editing = false;
+function setEditing(on) {
+  editing = on;
+  document.body.classList.toggle('editing', on);
+  $('#editToggle').textContent = on ? '완료' : '편집';
+  $('#editToggle').classList.toggle('on', on);
+  $('#editToggle').setAttribute('aria-pressed', String(on));
+}
+$('#editToggle').addEventListener('click', () => setEditing(!editing));
 
 // 공유 창 (이메일로 승인된 사용자와 함께 편집)
 let shareId = null;
