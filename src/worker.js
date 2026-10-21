@@ -311,7 +311,14 @@ function sanitizeTrip(body) {
     let id = clip(d?.id, 64) || crypto.randomUUID();
     if (seen.has(id)) id = crypto.randomUUID();
     seen.add(id);
-    days.push({ id, date: DATE_RE.test(String(d?.date)) ? d.date : '', stops });
+    // 구간별 이동수단: { "출발장소id>도착장소id": "WALKING" | ... }  (기본 이동수단과 다른 구간만 저장)
+    const legModes = {};
+    if (d?.legModes && typeof d.legModes === 'object') {
+      for (const [k, v] of Object.entries(d.legModes).slice(0, 300)) {
+        if (/^[^>]{1,64}>[^>]{1,64}$/.test(k) && MODES.includes(v)) legModes[k] = v;
+      }
+    }
+    days.push({ id, date: DATE_RE.test(String(d?.date)) ? d.date : '', stops, legModes });
   }
   if (count > MAX_STOPS_PER_TRIP) return null;
   const dates = days.map(d => d.date).filter(Boolean).sort();
