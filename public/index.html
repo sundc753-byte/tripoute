@@ -41,9 +41,9 @@
   .empty { padding:30px 16px; color:var(--muted); font-size:14px; text-align:center; line-height:1.6; }
   .foot { padding:10px 16px; border-top:1px solid var(--line); }
   #map { width:100%; height:100%; }
-  #keyBox { position:fixed; inset:0; background:rgba(0,0,0,.5); display:none; place-items:center; z-index:10; padding:16px; }
-  #keyBox .card { background:var(--card); padding:22px; border-radius:14px; max-width:460px; width:100%; line-height:1.55; font-size:14px; }
-  #keyBox h2 { margin:0 0 8px; }
+  #keyBox, #shareBox { position:fixed; inset:0; background:rgba(0,0,0,.5); display:none; place-items:center; z-index:10; padding:16px; }
+  #keyBox .card, #shareBox .card { background:var(--card); padding:22px; border-radius:14px; max-width:460px; width:100%; line-height:1.55; font-size:14px; }
+  #keyBox h2, #shareBox h2 { margin:0 0 8px; }
   #err { position:fixed; top:16px; right:16px; max-width:420px; background:#fff3f0; color:#7a1f10; border:1px solid #f3b5a8; border-radius:10px; padding:12px 14px; font-size:13px; line-height:1.55; z-index:15; display:none; box-shadow:0 4px 16px rgba(0,0,0,.15); }
   #err b { display:block; margin-bottom:4px; }
   #err button { margin-top:8px; }
@@ -54,6 +54,34 @@
   .userbar .acts { display:flex; gap:6px; flex:none; }
   .userbar a { color:var(--accent); text-decoration:none; padding:4px 8px; border:1px solid var(--line); border-radius:8px; font-size:12px; }
   .userbar button { padding:4px 8px; font-size:12px; min-height:0; }
+  aside { position:relative; }
+  .tripbar { margin-top:8px; flex-wrap:nowrap; }
+  .tripbar button { white-space:nowrap; }
+  #saveState { font-size:12px; color:var(--muted); margin-left:auto; white-space:nowrap; }
+  #saveState.bad { color:var(--danger); }
+  .robanner { margin-top:8px; padding:8px 10px; border-radius:10px; background:var(--bg); border:1px solid var(--line); font-size:12px; line-height:1.5; display:flex; gap:8px; align-items:center; justify-content:space-between; }
+  .robanner[hidden] { display:none; }
+  .robanner button { padding:5px 9px; font-size:12px; white-space:nowrap; }
+  body.readonly .x, body.readonly .mv { display:none; }
+  body.readonly .stop { cursor:default; }
+  #tripsPanel { position:absolute; inset:0; z-index:6; background:var(--card); display:flex; flex-direction:column; min-height:0; }
+  #tripsPanel[hidden] { display:none; }
+  .panel-head { display:flex; align-items:center; gap:8px; padding:14px 16px 10px; }
+  .panel-head h2 { margin:0; font-size:17px; flex:1; }
+  .tabs2 { display:flex; gap:4px; padding:0 16px 10px; border-bottom:1px solid var(--line); }
+  .tabs2 button { flex:1; padding:9px 6px; font-size:13px; }
+  .tabs2 button.on { background:var(--accent); border-color:var(--accent); color:#fff; font-weight:600; }
+  #tripItems { overflow:auto; flex:1; }
+  .item { display:flex; gap:8px; align-items:center; padding:12px 16px; border-bottom:1px solid var(--line); cursor:pointer; }
+  .item.cur { background:var(--bg); }
+  .it-main { flex:1; min-width:0; }
+  .it-title { font-weight:600; font-size:14px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .it-sub { font-size:12px; color:var(--muted); margin-top:2px; line-height:1.4; }
+  .it-acts { display:flex; gap:6px; flex:none; flex-wrap:wrap; justify-content:flex-end; max-width:150px; }
+  .it-acts button { padding:5px 8px; font-size:12px; min-height:0; }
+  #shareList { margin-top:12px; font-size:13px; }
+  #shareList .srow { display:flex; align-items:center; justify-content:space-between; gap:8px; padding:8px 0; border-bottom:1px solid var(--line); word-break:break-all; }
+  #shareList .none { color:var(--muted); padding:8px 0; }
   #sheetHandle { display:none; }
   .mv { display:none; }
   .iw { color:#1f2430; font-family:-apple-system,"Apple SD Gothic Neo","Noto Sans KR",sans-serif; min-width:200px; }
@@ -104,10 +132,27 @@
 <div class="app">
   <aside data-sheet="mid">
     <button id="sheetHandle" aria-label="패널 열기/닫기"><span></span></button>
+    <div id="tripsPanel" hidden>
+      <div class="panel-head"><h2>여행 목록</h2><button id="newTrip2" class="primary">＋ 새 여행</button><button id="closeTrips">닫기</button></div>
+      <div class="tabs2">
+        <button data-tab="mine" class="on">내 여행계획 <span id="cntMine"></span></button>
+        <button data-tab="shared">공유받은 여행 <span id="cntShared"></span></button>
+      </div>
+      <div id="tripItems"></div>
+    </div>
     <div class="head">
       <h1>🧭 나만의 여행경로</h1>
       <div class="row">
         <input type="text" id="title" placeholder="여행 이름 (예: 도쿄 3박 4일)" style="flex:1">
+      </div>
+      <div class="row tripbar">
+        <button id="openTrips">📂 여행 목록</button>
+        <button id="newTrip">＋ 새 여행</button>
+        <span id="saveState"></span>
+      </div>
+      <div class="robanner" id="roBanner" hidden>
+        <span id="roText"></span>
+        <button id="roCopy">내 여행으로 복사</button>
       </div>
       <div class="row userbar">
         <span id="who"></span>
@@ -130,7 +175,7 @@
     <ol id="list"></ol>
     <div class="foot row">
       <button class="primary" id="openGmaps">구글맵에서 열기</button>
-      <button id="share">링크 복사</button>
+      <button id="share">공유</button>
       <button id="export">내보내기</button>
       <button id="import">불러오기</button>
       <button class="danger" id="clear">초기화</button>
@@ -138,6 +183,17 @@
     </div>
   </aside>
   <div id="map"></div>
+</div>
+
+<div id="shareBox">
+  <div class="card">
+    <h2>여행 공유</h2>
+    <p id="shareTitle" style="margin:0 0 10px;font-weight:600"></p>
+    <p style="font-size:13px;color:var(--muted);line-height:1.5">승인된 사용자의 이메일을 입력하면 그 사용자의 “공유받은 여행”에 표시됩니다. 공유받은 사람은 읽기만 할 수 있고, 자기 여행으로 복사해서 수정할 수 있어요.</p>
+    <div class="row"><input type="text" id="shareEmail" inputmode="email" autocomplete="off" placeholder="email@example.com" style="flex:1"><button class="primary" id="shareAdd">공유</button></div>
+    <div id="shareList"></div>
+    <div class="row" style="margin-top:12px;justify-content:flex-end"><button id="shareClose">닫기</button></div>
+  </div>
 </div>
 
 <div id="keyBox">
@@ -163,10 +219,12 @@
 <script src="config.js"></script>
 <script>
 const $ = s => document.querySelector(s);
-const KEY_STORE = 'tripoute.apikey', DATA_STORE = 'tripoute.trip';
+const KEY_STORE = 'tripoute.apikey', DATA_STORE = 'tripoute.trip', LAST_STORE = 'tripoute.lastTrip';
 const MODE_ICON = { WALKING:'🚶', TRANSIT:'🚇', DRIVING:'🚗', BICYCLING:'🚲' };
 
-let trip = { title:'', mode:'WALKING', stops:[] };   // stops: {id,name,address,lat,lng,memo}
+const blankTrip = () => ({ id:null, title:'', mode:'WALKING', stops:[], role:'owner', owner_email:null });   // stops: {id,name,address,lat,lng,memo}
+let trip = blankTrip();
+const isViewer = () => trip.role === 'viewer';
 let map, geocoder, markers = [], routeLines = [], dragIdx = null;
 const ORANGE = '#ff7a00';
 const markerIcon = n => ({
@@ -184,15 +242,84 @@ function showError(title, detail) {
 }
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 
-/* ---------- 저장 / 공유 ---------- */
-function save() { safe(() => localStorage.setItem(DATA_STORE, JSON.stringify(trip))); }
-function encodeTrip() { return btoa(unescape(encodeURIComponent(JSON.stringify(trip)))); }
+/* ---------- 서버 API ---------- */
+async function api(path, method = 'GET', body) {
+  const opts = { method, headers:{ 'Content-Type':'application/json' }, cache:'no-store' };
+  if (body !== undefined || method === 'POST') opts.body = JSON.stringify(body ?? {});
+  if (opts.body && opts.body.length < 60000) opts.keepalive = true;   // 탭을 닫는 순간에도 저장 요청이 끝나도록
+  const res = await fetch(path, opts);
+  if (res.status === 401) { location.href = '/login'; throw new Error('로그인이 필요합니다.'); }
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || '요청을 처리하지 못했습니다.');
+  return data;
+}
+
+/* ---------- 자동 저장 (계정별) ---------- */
+let saveTimer = null, savePromise = Promise.resolve(), retryTimer = null;
+const setSaveState = (text, bad = false) => { const e = $('#saveState'); e.textContent = text; e.classList.toggle('bad', bad); };
+
+function save() {   // 내용이 바뀔 때마다 호출 — 잠시 모았다가 한 번에 저장
+  if (isViewer()) return;
+  if (!trip.id && !trip.stops.length && !trip.title.trim()) return;   // 비어 있는 새 여행은 저장하지 않음
+  setSaveState('저장 중…');
+  clearTimeout(saveTimer); saveTimer = setTimeout(flushSave, 1200);
+}
+function flushSave() {
+  clearTimeout(saveTimer); saveTimer = null;
+  savePromise = savePromise.then(doSave, doSave);
+  return savePromise;
+}
+async function doSave() {
+  const t = trip;                                   // 저장 도중 다른 여행으로 바뀌어도 이 여행에 기록
+  if (t.role === 'viewer') return;
+  if (!t.id && !t.stops.length && !t.title.trim()) return;
+  const body = { title:t.title, mode:t.mode, stops:t.stops };
+  try {
+    if (t.id) await api('/api/trips/' + t.id, 'PUT', body);
+    else { const d = await api('/api/trips', 'POST', body); t.id = d.id; safe(() => localStorage.setItem(LAST_STORE, d.id)); }
+    if (trip === t) setSaveState('✓ 저장됨');
+  } catch (err) {
+    console.warn('save failed', err);
+    if (trip === t) setSaveState('⚠ 저장 실패 — 재시도 중', true);
+    clearTimeout(retryTimer); retryTimer = setTimeout(() => { if (trip === t) save(); }, 8000);
+  }
+}
+addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden' && saveTimer) flushSave(); });
+addEventListener('pagehide', () => { if (saveTimer) flushSave(); });
+
 function decodeTrip(s) { return JSON.parse(decodeURIComponent(escape(atob(s)))); }
-function loadInitial() {
+
+async function fetchTrip(id) {
+  const d = await api('/api/trips/' + id);
+  trip = { id:d.id, title:d.title || '', mode:d.mode || 'WALKING', stops:d.stops || [], role:d.role, owner_email:d.owner_email };
+  safe(() => localStorage.setItem(LAST_STORE, d.id));
+}
+async function openTrip(id) {
+  await flushSave();
+  try { await fetchTrip(id); } catch (err) { return toast(err.message); }
+  closePanel(); setSaveState(''); render(true, false);
+}
+async function newTrip() {
+  await flushSave();
+  trip = blankTrip(); safe(() => localStorage.removeItem(LAST_STORE));
+  closePanel(); setSaveState(''); render(false, false);
+  infoWindow?.close();
+  toast('새 여행을 시작했어요');
+}
+// 첫 화면에 보여줄 여행 결정: 예전 공유 링크 → 예전 브라우저 저장본 → 마지막으로 연 여행
+async function initTrip() {
   const h = location.hash.slice(1);
-  if (h.startsWith('t=')) { const t = safe(() => decodeTrip(h.slice(2))); if (t?.stops) return t; }
-  const s = safe(() => JSON.parse(localStorage.getItem(DATA_STORE)));
-  return s?.stops ? s : trip;
+  const fromLink = h.startsWith('t=') ? safe(() => decodeTrip(h.slice(2))) : null;
+  const legacy = safe(() => JSON.parse(localStorage.getItem(DATA_STORE)));
+  const imported = fromLink?.stops?.length ? fromLink : (legacy?.stops?.length ? legacy : null);
+  if (imported) {
+    trip = { ...blankTrip(), title:imported.title || '', mode:imported.mode || 'WALKING', stops:imported.stops };
+    safe(() => localStorage.removeItem(DATA_STORE));
+    if (fromLink) history.replaceState(null, '', location.pathname);
+    save(); return;
+  }
+  const last = safe(() => localStorage.getItem(LAST_STORE));
+  if (last) { try { await fetchTrip(last); } catch { safe(() => localStorage.removeItem(LAST_STORE)); } }
 }
 
 /* ---------- API 로딩 ---------- */
@@ -262,7 +389,8 @@ async function start(key) {
   mapEl.addEventListener('pointermove', ev => { if (press && Math.hypot(ev.clientX - press.x, ev.clientY - press.y) > 10) cancelPress(); }, { capture:true });
   ['pointerup', 'pointercancel', 'pointerleave', 'wheel'].forEach(t => mapEl.addEventListener(t, cancelPress, { capture:true }));
 
-  render(true);
+  await tripReady;
+  render(true, false);
 }
 
 async function initSearch() {
@@ -302,8 +430,8 @@ function buildInfoNode(info) {
   if (info.address) card.appendChild(el('div', 'iw-addr', info.address));
   const row = el('div', 'iw-actions');
   const exists = trip.stops.some(st => haversine(st, info) < 15);
-  const add = el('button', 'iw-add', exists ? '이미 추가됨' : '경로에 추가');
-  add.disabled = exists;
+  const add = el('button', 'iw-add', isViewer() ? '읽기 전용' : exists ? '이미 추가됨' : '경로에 추가');
+  add.disabled = exists || isViewer();
   add.addEventListener('click', () => {
     addStop({ name:info.name, address:info.address || '', lat:info.lat, lng:info.lng });
     infoWindow.close();
@@ -344,32 +472,41 @@ async function showInfo(latLng, placeId) {
 }
 
 /* ---------- 지점 조작 ---------- */
-function addStop(s) { trip.stops.push({ id:crypto.randomUUID(), memo:'', ...s }); render(); }
-function removeStop(i) { trip.stops.splice(i, 1); render(); }
-function moveStop(from, to) { const [s] = trip.stops.splice(from, 1); trip.stops.splice(to, 0, s); render(); }
+const readOnlyToast = () => toast('공유받은 여행은 수정할 수 없어요. “내 여행으로 복사”를 눌러 주세요');
+function addStop(s) { if (isViewer()) return readOnlyToast(); trip.stops.push({ id:crypto.randomUUID(), memo:'', ...s }); render(); }
+function removeStop(i) { if (isViewer()) return readOnlyToast(); trip.stops.splice(i, 1); render(); }
+function moveStop(from, to) { if (isViewer()) return readOnlyToast(); const [s] = trip.stops.splice(from, 1); trip.stops.splice(to, 0, s); render(); }
 
 /* ---------- 렌더링 ---------- */
-function render(fit = false) {
-  save();
+function render(fit = false, persist = true) {
+  if (persist) save();
+  const ro = isViewer();
+  document.body.classList.toggle('readonly', ro);
   $('#title').value = trip.title || '';
+  $('#title').readOnly = ro;
   $('#mode').value = trip.mode;
+  ['#optimize', '#reverse', '#clear', '#import'].forEach(q => { $(q).disabled = ro; });
+  $('#share').hidden = ro;
+  $('#roBanner').hidden = !ro;
+  if (ro) $('#roText').textContent = `공유받은 여행 · ${trip.owner_email} (읽기 전용)`;
   const list = $('#list');
   if (!trip.stops.length) {
     list.innerHTML = '<div class="empty">검색하거나 지도를 클릭해<br>방문할 장소를 추가해 보세요.<br>순서를 드래그해서 바꿀 수 있어요.</div>';
   } else {
     list.innerHTML = trip.stops.map((s, i) => `
-      <li class="stop" draggable="true" data-i="${i}">
+      <li class="stop" draggable="${!ro}" data-i="${i}">
         <div class="num" title="드래그해서 순서 변경">${i + 1}</div>
         <div class="info">
           <div class="name" data-focus="${i}">${esc(s.name)}</div>
           <div class="addr">${esc(s.address)}</div>
-          <input type="text" class="memo" data-memo="${i}" placeholder="메모 (예: 10시 입장, 예약필요)" value="${esc(s.memo)}">
+          <input type="text" class="memo" data-memo="${i}" placeholder="${ro ? '' : '메모 (예: 10시 입장, 예약필요)'}" value="${esc(s.memo)}"${ro ? ' readonly' : ''}>
           <div class="leg" data-leg="${i}"></div>
         </div>
         <div class="mv"><button data-up="${i}" aria-label="위로">▲</button><button data-down="${i}" aria-label="아래로">▼</button></div>
         <button class="x" data-del="${i}" title="삭제">×</button>
       </li>`).join('');
   }
+  if (!map) return;
   drawMarkers(fit);
   drawRoute();
 }
@@ -463,9 +600,9 @@ list.addEventListener('click', e => {
   if (f) { const s = trip.stops[+f.dataset.focus]; map.panTo({ lat:s.lat, lng:s.lng }); map.setZoom(Math.max(map.getZoom(), 15)); }
 });
 list.addEventListener('input', e => {
-  const m = e.target.closest('[data-memo]'); if (m) { trip.stops[+m.dataset.memo].memo = m.value; save(); }
+  const m = e.target.closest('[data-memo]'); if (m && !isViewer()) { trip.stops[+m.dataset.memo].memo = m.value; save(); }
 });
-list.addEventListener('dragstart', e => { const li = e.target.closest('li.stop'); if (li) { dragIdx = +li.dataset.i; e.dataTransfer.effectAllowed = 'move'; } });
+list.addEventListener('dragstart', e => { if (isViewer()) return e.preventDefault(); const li = e.target.closest('li.stop'); if (li) { dragIdx = +li.dataset.i; e.dataTransfer.effectAllowed = 'move'; } });
 list.addEventListener('dragover', e => { const li = e.target.closest('li.stop'); if (li && dragIdx !== null) { e.preventDefault(); li.classList.add('over'); } });
 list.addEventListener('dragleave', e => e.target.closest('li.stop')?.classList.remove('over'));
 list.addEventListener('drop', e => {
@@ -476,12 +613,13 @@ list.addEventListener('drop', e => {
 });
 list.addEventListener('dragend', () => { dragIdx = null; document.querySelectorAll('.over').forEach(x => x.classList.remove('over')); });
 
-$('#title').addEventListener('input', e => { trip.title = e.target.value; save(); });
+$('#title').addEventListener('input', e => { if (isViewer()) return; trip.title = e.target.value; save(); });
 $('#mode').addEventListener('change', e => { trip.mode = e.target.value; save(); drawRoute(); });
-$('#reverse').addEventListener('click', () => { trip.stops.reverse(); render(); });
+$('#reverse').addEventListener('click', () => { if (isViewer()) return readOnlyToast(); trip.stops.reverse(); render(); });
 
 // 최근접 이웃 방식의 간단한 순서 최적화 (첫 지점 고정)
 $('#optimize').addEventListener('click', () => {
+  if (isViewer()) return readOnlyToast();
   const s = trip.stops; if (s.length < 4) return toast('지점이 4개 이상일 때 사용할 수 있어요');
   const first = s[0], last = s[s.length - 1], mid = s.slice(1, -1), out = [first];
   let cur = first;
@@ -502,11 +640,7 @@ function gmapsUrl() {
 }
 $('#openGmaps').addEventListener('click', () => { const u = gmapsUrl(); u ? window.open(u, '_blank', 'noopener') : toast('지점을 2개 이상 추가하세요'); });
 
-$('#share').addEventListener('click', async () => {
-  const url = location.origin + location.pathname + '#t=' + encodeTrip();
-  try { await navigator.clipboard.writeText(url); toast('공유 링크를 복사했어요 (API 키는 포함되지 않아요)'); }
-  catch { prompt('링크를 복사하세요', url); }
-});
+$('#share').addEventListener('click', () => openShare(null));
 $('#export').addEventListener('click', () => {
   const a = document.createElement('a');
   a.href = URL.createObjectURL(new Blob([JSON.stringify(trip, null, 2)], { type:'application/json' }));
@@ -515,11 +649,11 @@ $('#export').addEventListener('click', () => {
 $('#import').addEventListener('click', () => $('#file').click());
 $('#file').addEventListener('change', async e => {
   const f = e.target.files[0]; if (!f) return;
-  try { const t = JSON.parse(await f.text()); if (!Array.isArray(t.stops)) throw 0; trip = { title:'', mode:'WALKING', ...t }; render(true); toast('불러왔어요'); }
+  try { const t = JSON.parse(await f.text()); if (!Array.isArray(t.stops)) throw 0; if (isViewer()) return readOnlyToast(); trip.title = t.title || trip.title; trip.mode = t.mode || trip.mode; trip.stops = t.stops; render(true); toast('불러왔어요'); }
   catch { toast('올바른 파일이 아니에요'); }
   e.target.value = '';
 });
-$('#clear').addEventListener('click', () => { if (confirm('모든 지점을 삭제할까요?')) { trip.stops = []; render(); } });
+$('#clear').addEventListener('click', () => { if (isViewer()) return readOnlyToast(); if (confirm('모든 지점을 삭제할까요?')) { trip.stops = []; render(); } });
 
 $('#changeKey').addEventListener('click', () => { $('#keyInput').value = safe(() => localStorage.getItem(KEY_STORE)) || ''; showKeyBox(true); });
 $('#keyCancel').addEventListener('click', () => showKeyBox(false));
@@ -527,6 +661,116 @@ $('#keySave').addEventListener('click', () => {
   const k = $('#keyInput').value.trim(); if (!k) return;
   safe(() => localStorage.setItem(KEY_STORE, k));
   location.reload();
+});
+
+/* ---------- 여행 목록 (내 여행계획 / 공유받은 여행) ---------- */
+let tripLists = { mine:[], shared:[] }, tripTab = 'mine', sheetBeforePanel = null;
+const fmtDate = ts => new Date(ts * 1000).toLocaleString('ko-KR', { month:'numeric', day:'numeric', hour:'2-digit', minute:'2-digit' });
+
+function renderTripItems() {
+  $('#cntMine').textContent = `(${tripLists.mine.length})`;
+  $('#cntShared').textContent = `(${tripLists.shared.length})`;
+  document.querySelectorAll('.tabs2 button').forEach(b => b.classList.toggle('on', b.dataset.tab === tripTab));
+  const box = $('#tripItems');
+  if (tripTab === 'mine') {
+    box.innerHTML = tripLists.mine.length ? tripLists.mine.map(t => `
+      <div class="item ${t.id === trip.id ? 'cur' : ''}" data-open="${t.id}">
+        <div class="it-main"><div class="it-title">${esc(t.title || '제목 없음')}</div>
+          <div class="it-sub">지점 ${t.stop_count}개 · ${fmtDate(t.updated_at)}${t.share_count ? ` · 👥 ${t.share_count}명에게 공유` : ''}</div></div>
+        <div class="it-acts"><button data-share="${t.id}">공유</button><button class="danger" data-delete="${t.id}">삭제</button></div>
+      </div>`).join('') : '<div class="empty">저장된 여행이 없어요.<br>장소를 추가하면 자동으로 저장돼요.</div>';
+  } else {
+    box.innerHTML = tripLists.shared.length ? tripLists.shared.map(t => `
+      <div class="item ${t.id === trip.id ? 'cur' : ''}" data-open="${t.id}">
+        <div class="it-main"><div class="it-title">${esc(t.title || '제목 없음')}</div>
+          <div class="it-sub">${esc(t.owner_email)} 님이 공유 · 지점 ${t.stop_count}개 · ${fmtDate(t.shared_at)}</div></div>
+        <div class="it-acts"><button data-copy="${t.id}">복사</button><button class="danger" data-leave="${t.id}">제거</button></div>
+      </div>`).join('') : '<div class="empty">공유받은 여행이 없어요.<br>다른 사용자가 이메일로 공유하면 여기에 나타나요.</div>';
+  }
+}
+async function refreshTrips() {
+  try { tripLists = await api('/api/trips'); renderTripItems(); }
+  catch (err) { $('#tripItems').innerHTML = `<div class="empty">${esc(err.message)}</div>`; }
+}
+async function openPanel(tab) {
+  if (tab) tripTab = tab;
+  await flushSave();
+  if (matchMedia('(max-width:760px)').matches) { sheetBeforePanel = sheet.dataset.sheet; sheet.dataset.sheet = 'max'; }
+  $('#tripsPanel').hidden = false;
+  renderTripItems();
+  refreshTrips();
+}
+function closePanel() {
+  $('#tripsPanel').hidden = true;
+  if (sheetBeforePanel) { sheet.dataset.sheet = sheetBeforePanel; sheetBeforePanel = null; }
+}
+$('#openTrips').addEventListener('click', () => openPanel());
+$('#closeTrips').addEventListener('click', closePanel);
+$('#newTrip').addEventListener('click', newTrip);
+$('#newTrip2').addEventListener('click', newTrip);
+document.querySelector('.tabs2').addEventListener('click', e => { const b = e.target.closest('[data-tab]'); if (b) { tripTab = b.dataset.tab; renderTripItems(); } });
+
+async function copyTrip(id) {
+  try { const d = await api(`/api/trips/${id}/copy`, 'POST'); toast('내 여행으로 복사했어요'); await openTrip(d.id); }
+  catch (err) { toast(err.message); }
+}
+$('#tripItems').addEventListener('click', async e => {
+  const sh = e.target.closest('[data-share]'), del = e.target.closest('[data-delete]'), cp = e.target.closest('[data-copy]'), lv = e.target.closest('[data-leave]');
+  try {
+    if (sh) return openShare(sh.dataset.share);
+    if (cp) return copyTrip(cp.dataset.copy);
+    if (del) {
+      const t = tripLists.mine.find(x => x.id === del.dataset.delete);
+      if (!confirm(`“${t?.title || '제목 없음'}” 여행을 삭제할까요?\n공유받은 사람의 목록에서도 사라지며 되돌릴 수 없어요.`)) return;
+      if (trip.id === del.dataset.delete) { clearTimeout(saveTimer); saveTimer = null; }
+      await api('/api/trips/' + del.dataset.delete, 'DELETE');
+      if (trip.id === del.dataset.delete) { trip = blankTrip(); safe(() => localStorage.removeItem(LAST_STORE)); render(false, false); setSaveState(''); }
+      toast('삭제했어요'); return refreshTrips();
+    }
+    if (lv) {
+      if (!confirm('공유받은 목록에서 이 여행을 제거할까요? (원본은 그대로 유지돼요)')) return;
+      await api(`/api/trips/${lv.dataset.leave}/leave`, 'POST');
+      if (trip.id === lv.dataset.leave) { trip = blankTrip(); render(false, false); }
+      toast('제거했어요'); return refreshTrips();
+    }
+    const item = e.target.closest('[data-open]'); if (item) openTrip(item.dataset.open);
+  } catch (err) { toast(err.message); }
+});
+$('#roCopy').addEventListener('click', () => copyTrip(trip.id));
+
+// 공유 창 (이메일로 승인된 사용자에게 읽기 전용 공유)
+let shareId = null;
+async function openShare(id) {
+  if (!id) {
+    await flushSave();
+    id = trip.id;
+    if (!id) return toast('지점을 추가하거나 제목을 입력해 여행을 먼저 저장하세요');
+  }
+  shareId = id; $('#shareEmail').value = ''; $('#shareList').innerHTML = '';
+  $('#shareBox').style.display = 'grid';
+  refreshShare();
+}
+async function refreshShare() {
+  try {
+    const d = await api('/api/trips/' + shareId);
+    $('#shareTitle').textContent = d.title || '제목 없음';
+    $('#shareList').innerHTML = d.shared_with?.length
+      ? d.shared_with.map(u => `<div class="srow"><span>${esc(u.email)}</span><button class="danger" data-unshare="${u.id}">해제</button></div>`).join('')
+      : '<div class="none">아직 공유한 사람이 없어요.</div>';
+  } catch (err) { $('#shareList').innerHTML = `<div class="none">${esc(err.message)}</div>`; }
+}
+async function addShare() {
+  const email = $('#shareEmail').value.trim(); if (!email) return;
+  try { await api(`/api/trips/${shareId}/share`, 'POST', { email }); $('#shareEmail').value = ''; toast('공유했어요'); await refreshShare(); if (!$('#tripsPanel').hidden) refreshTrips(); }
+  catch (err) { toast(err.message); }
+}
+$('#shareAdd').addEventListener('click', addShare);
+$('#shareEmail').addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); addShare(); } });
+$('#shareClose').addEventListener('click', () => { $('#shareBox').style.display = 'none'; });
+$('#shareList').addEventListener('click', async e => {
+  const b = e.target.closest('[data-unshare]'); if (!b) return;
+  try { await api(`/api/trips/${shareId}/unshare`, 'POST', { userId:+b.dataset.unshare }); await refreshShare(); if (!$('#tripsPanel').hidden) refreshTrips(); }
+  catch (err) { toast(err.message); }
 });
 
 /* ---------- 모바일 바텀시트 ---------- */
@@ -556,7 +800,7 @@ $('#logout').addEventListener('click', async () => {
 });
 
 /* ---------- 시작 ---------- */
-trip = loadInitial();
+const tripReady = initTrip().catch(err => console.warn('initTrip failed', err));
 const SHARED_KEY = (window.TRIPOUTE_API_KEY || '').trim();
 const key = SHARED_KEY || safe(() => localStorage.getItem(KEY_STORE));
 if (SHARED_KEY) $('#changeKey').style.display = 'none';

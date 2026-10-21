@@ -78,6 +78,23 @@ function ensureSchema(env) {
       n INTEGER NOT NULL,
       ts INTEGER NOT NULL
     )`),
+    env.DB.prepare(`CREATE TABLE IF NOT EXISTS trips (
+      id TEXT PRIMARY KEY,
+      owner_id INTEGER NOT NULL,
+      title TEXT NOT NULL DEFAULT '',
+      data TEXT NOT NULL,
+      stop_count INTEGER NOT NULL DEFAULT 0,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    )`),
+    env.DB.prepare(`CREATE TABLE IF NOT EXISTS trip_shares (
+      trip_id TEXT NOT NULL,
+      user_id INTEGER NOT NULL,
+      created_at INTEGER NOT NULL,
+      PRIMARY KEY (trip_id, user_id)
+    )`),
+    env.DB.prepare('CREATE INDEX IF NOT EXISTS idx_trips_owner ON trips (owner_id, updated_at)'),
+    env.DB.prepare('CREATE INDEX IF NOT EXISTS idx_shares_user ON trip_shares (user_id, created_at)'),
   ]).catch(err => { schemaReady = null; throw err; });
   return schemaReady;
 }
@@ -227,12 +244,163 @@ async function adminApi(request, env, url, session) {
       ]);
     } else {
       await env.DB.batch([
+        env.DB.prepare('DELETE FROM trip_shares WHERE user_id = ? OR trip_id IN (SELECT id FROM trips WHERE owner_id = ?)').bind(id, id),
+        env.DB.prepare('DELETE FROM trips WHERE owner_id = ?').bind(id),
         env.DB.prepare('DELETE FROM sessions WHERE user_id = ?').bind(id),
         env.DB.prepare('DELETE FROM users WHERE id = ?').bind(id),
       ]);
     }
     return json({ ok: true });
   }
+  return json({ error: 'Not found' }, 404);
+}
+
+/* ---------- 여행 저장 / 공유 API ---------- */
+const MODES = ['WALKING', 'TRANSIT', 'DRIVING', 'BICYCLING'];
+const MAX_TRIPS_PER_USER = 100, MAX_SHARES_PER_TRIP = 50, MAX_BODY_BYTES = 300000;
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+const clip = (v, max) => String(v ?? '').slice(0, max);
+const inRange = (v, min, max) => typeof v === 'number' && Number.isFinite(v) && v >= min && v <= max;
+
+// 클라이언트가 보낸 여행 데이터를 검증/정리합니다. 잘못되면 null.
+function sanitizeTrip(body) {
+  if (!body || typeof body !== 'object' || !Array.isArray(body.stops) || body.stops.length > 100) return null;
+  const stops = [];
+  for (const st of body.stops) {
+    if (!inRange(st?.lat, -90, 90) || !inRange(st?.lng, -180, 180)) return null;
+    stops.push({ id: clip(st.id, 64) || crypto.randomUUID(), name: clip(st.name, 200), address: clip(st.address, 300), memo: clip(st.memo, 500), lat: st.lat, lng: st.lng });
+  }
+  return {
+    title: clip(body.title, 100).trim(),
+    data: JSON.stringify({ mode: MODES.includes(body.mode) ? body.mode : 'WALKING', stops }),
+    count: stops.length,
+  };
+}
+
+// 소유자이거나 공유받은 사용자만 열람할 수 있습니다.
+async function loadTrip(env, id, session) {
+  const t = await env.DB.prepare(
+    `SELECT t.id, t.owner_id, t.title, t.data, t.updated_at, u.email AS owner_email
+       FROM trips t JOIN users u ON u.id = t.owner_id WHERE t.id = ?`
+  ).bind(id).first();
+  if (!t) return null;
+  if (t.owner_id === session.id) return { ...t, role: 'owner' };
+  const sh = await env.DB.prepare('SELECT 1 AS ok FROM trip_shares WHERE trip_id = ? AND user_id = ?').bind(id, session.id).first();
+  return sh ? { ...t, role: 'viewer' } : null;
+}
+
+async function createTrip(env, ownerId, clean, titleOverride) {
+  const c = await env.DB.prepare('SELECT COUNT(*) AS c FROM trips WHERE owner_id = ?').bind(ownerId).first();
+  if (c.c >= MAX_TRIPS_PER_USER) return null;
+  const id = crypto.randomUUID(), t = now();
+  await env.DB.prepare('INSERT INTO trips (id, owner_id, title, data, stop_count, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)')
+    .bind(id, ownerId, titleOverride ?? clean.title, clean.data, clean.count, t, t).run();
+  return { id, updated_at: t };
+}
+
+async function tripsApi(request, env, url, session) {
+  if (!session) return json({ error: '로그인이 필요합니다.' }, 401);
+  const parts = url.pathname.split('/').filter(Boolean);   // ['api', 'trips', id?, action?]
+  const id = parts[2], action = parts[3], method = request.method;
+  if (id && !UUID_RE.test(id)) return json({ error: '여행을 찾을 수 없습니다.' }, 404);
+  if (method !== 'GET' && Number(request.headers.get('Content-Length') || 0) > MAX_BODY_BYTES) return json({ error: '데이터가 너무 큽니다.' }, 413);
+
+  // 목록 / 생성
+  if (!id) {
+    if (method === 'GET') {
+      const [mine, shared] = await Promise.all([
+        env.DB.prepare(
+          `SELECT t.id, t.title, t.stop_count, t.updated_at,
+                  (SELECT COUNT(*) FROM trip_shares s WHERE s.trip_id = t.id) AS share_count
+             FROM trips t WHERE t.owner_id = ? ORDER BY t.updated_at DESC`
+        ).bind(session.id).all(),
+        env.DB.prepare(
+          `SELECT t.id, t.title, t.stop_count, t.updated_at, u.email AS owner_email, s.created_at AS shared_at
+             FROM trip_shares s JOIN trips t ON t.id = s.trip_id JOIN users u ON u.id = t.owner_id
+            WHERE s.user_id = ? ORDER BY s.created_at DESC`
+        ).bind(session.id).all(),
+      ]);
+      return json({ mine: mine.results, shared: shared.results });
+    }
+    if (method === 'POST') {
+      const clean = sanitizeTrip(await readJson(request));
+      if (!clean) return json({ error: '여행 데이터가 올바르지 않습니다.' }, 400);
+      const created = await createTrip(env, session.id, clean);
+      return created ? json(created, 201) : json({ error: `여행은 최대 ${MAX_TRIPS_PER_USER}개까지 저장할 수 있습니다.` }, 409);
+    }
+    return json({ error: 'Not found' }, 404);
+  }
+
+  const trip = await loadTrip(env, id, session);
+  if (!trip) return json({ error: '여행을 찾을 수 없습니다.' }, 404);   // 없음/권한 없음을 구분하지 않음
+  const isOwner = trip.role === 'owner';
+
+  // 열람
+  if (!action && method === 'GET') {
+    const out = { id: trip.id, title: trip.title, role: trip.role, owner_email: trip.owner_email, updated_at: trip.updated_at, ...JSON.parse(trip.data) };
+    if (isOwner) {
+      const { results } = await env.DB.prepare(
+        'SELECT u.id, u.email FROM trip_shares s JOIN users u ON u.id = s.user_id WHERE s.trip_id = ? ORDER BY s.created_at'
+      ).bind(id).all();
+      out.shared_with = results;
+    }
+    return json(out);
+  }
+
+  // 복사 (소유자/공유받은 사용자 모두 자기 여행으로 복사 가능)
+  if (action === 'copy' && method === 'POST') {
+    const data = JSON.parse(trip.data);
+    const clean = sanitizeTrip({ title: '', mode: data.mode, stops: data.stops });
+    const created = await createTrip(env, session.id, clean, clip((trip.title || '여행') + ' (복사본)', 100));
+    return created ? json(created, 201) : json({ error: `여행은 최대 ${MAX_TRIPS_PER_USER}개까지 저장할 수 있습니다.` }, 409);
+  }
+
+  // 공유받은 목록에서 빼기
+  if (action === 'leave' && method === 'POST') {
+    if (isOwner) return json({ error: '내가 만든 여행입니다.' }, 400);
+    await env.DB.prepare('DELETE FROM trip_shares WHERE trip_id = ? AND user_id = ?').bind(id, session.id).run();
+    return json({ ok: true });
+  }
+
+  // 이하는 소유자만
+  if (!isOwner) return json({ error: '수정 권한이 없습니다.' }, 403);
+
+  if (!action && method === 'PUT') {
+    const clean = sanitizeTrip(await readJson(request));
+    if (!clean) return json({ error: '여행 데이터가 올바르지 않습니다.' }, 400);
+    const t = now();
+    await env.DB.prepare('UPDATE trips SET title = ?, data = ?, stop_count = ?, updated_at = ? WHERE id = ? AND owner_id = ?')
+      .bind(clean.title, clean.data, clean.count, t, id, session.id).run();
+    return json({ ok: true, updated_at: t });
+  }
+
+  if (!action && method === 'DELETE') {
+    await env.DB.batch([
+      env.DB.prepare('DELETE FROM trip_shares WHERE trip_id = ?').bind(id),
+      env.DB.prepare('DELETE FROM trips WHERE id = ? AND owner_id = ?').bind(id, session.id),
+    ]);
+    return json({ ok: true });
+  }
+
+  if (action === 'share' && method === 'POST') {
+    const body = await readJson(request);
+    const email = String(body?.email ?? '').trim().toLowerCase();
+    if (!EMAIL_RE.test(email)) return json({ error: '올바른 이메일 주소를 입력하세요.' }, 400);
+    if (email === session.email) return json({ error: '본인에게는 공유할 수 없습니다.' }, 400);
+    const target = await env.DB.prepare("SELECT id, email FROM users WHERE email = ? AND status = 'approved'").bind(email).first();
+    if (!target) return json({ error: '승인된 사용자 중에서 해당 이메일을 찾을 수 없습니다.' }, 404);
+    const c = await env.DB.prepare('SELECT COUNT(*) AS c FROM trip_shares WHERE trip_id = ?').bind(id).first();
+    if (c.c >= MAX_SHARES_PER_TRIP) return json({ error: `한 여행은 최대 ${MAX_SHARES_PER_TRIP}명에게 공유할 수 있습니다.` }, 409);
+    await env.DB.prepare('INSERT OR IGNORE INTO trip_shares (trip_id, user_id, created_at) VALUES (?, ?, ?)').bind(id, target.id, now()).run();
+    return json({ ok: true, user: target });
+  }
+
+  if (action === 'unshare' && method === 'POST') {
+    const body = await readJson(request);
+    await env.DB.prepare('DELETE FROM trip_shares WHERE trip_id = ? AND user_id = ?').bind(id, Number(body?.userId) || 0).run();
+    return json({ ok: true });
+  }
+
   return json({ error: 'Not found' }, 404);
 }
 
@@ -261,6 +429,7 @@ async function handleApi(request, env, url) {
     return session ? json({ email: session.email, role: session.role }) : json({ error: '로그인이 필요합니다.' }, 401);
   }
   if (p.startsWith('/api/admin/')) return adminApi(request, env, url, session);
+  if (p === '/api/trips' || p.startsWith('/api/trips/')) return tripsApi(request, env, url, session);
   return json({ error: 'Not found' }, 404);
 }
 
