@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)">
 <meta name="theme-color" content="#1b1f27" media="(prefers-color-scheme: dark)">
-<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover">
 <title>나만의 여행경로</title>
 <style>
   :root { --bg:#f6f7f9; --card:#fff; --text:#1f2430; --muted:#6b7280; --line:#e5e7eb; --accent:#ff7a00; --danger:#dc2626; }
@@ -25,7 +25,7 @@
   button.primary { background:var(--accent); border-color:var(--accent); color:#fff; }
   button.danger { color:var(--danger); }
   .search { padding:12px 16px; border-bottom:1px solid var(--line); }
-  gmp-place-autocomplete { width:100%; color-scheme:light dark; }
+  gmp-place-autocomplete { width:100%; color-scheme:light dark; font-size:16px; }
   .summary { padding:10px 16px; font-size:13px; color:var(--muted); border-bottom:1px solid var(--line); display:flex; justify-content:space-between; gap:8px; }
   .summary b { color:var(--text); }
   ol { list-style:none; margin:0; padding:0; overflow:auto; flex:1; }
@@ -98,13 +98,14 @@
   }
   @media (max-width:760px) {
     html, body { background:var(--card); }
-    .app { display:block; position:relative; height:100vh; height:100dvh; }
+    html, body { position:fixed; inset:0; width:100%; overflow:hidden; overscroll-behavior:none; }
+    .app { display:block; position:relative; height:100vh; height:100dvh; height:var(--app-h, 100dvh); }
     #map { position:absolute; inset:0; }
     aside { position:absolute; left:0; right:0; bottom:0; z-index:5; border:none; border-radius:18px 18px 0 0;
             box-shadow:0 -6px 24px rgba(0,0,0,.2); transition:height .25s ease;
-            height:58dvh; overflow-y:auto; overscroll-behavior:contain; padding-bottom:env(safe-area-inset-bottom); }
+            height:58%; overflow-y:auto; overscroll-behavior:contain; padding-bottom:env(safe-area-inset-bottom); }
     aside[data-sheet="min"] { height:calc(150px + env(safe-area-inset-bottom)); }
-    aside[data-sheet="max"] { height:88dvh; }
+    aside[data-sheet="max"] { height:88%; }
     #sheetHandle { display:block; width:100%; border:none; background:none; padding:10px 0 4px; touch-action:none; }
     #sheetHandle span { display:block; width:42px; height:5px; border-radius:3px; background:var(--line); margin:0 auto; }
     .head { padding:4px 16px 10px; }
@@ -472,6 +473,7 @@ async function initSearch() {
       await place.fetchFields({ fields:['displayName','formattedAddress','location'] });
       addStop({ name:place.displayName, address:place.formattedAddress, lat:place.location.lat(), lng:place.location.lng() });
       ac.value = '';
+      document.activeElement?.blur?.(); ac.shadowRoot?.activeElement?.blur?.();   // 모바일: 키보드를 내려 결과가 보이게
       map.panTo(place.location);
     } catch (err) { console.error(err); toast('장소 정보를 가져오지 못했습니다'); }
   };
@@ -843,6 +845,21 @@ $('#shareList').addEventListener('click', async e => {
 const sheet = document.querySelector('aside'), SHEETS = ['min', 'mid', 'max'];
 const setSheet = d => { const i = Math.min(2, Math.max(0, SHEETS.indexOf(sheet.dataset.sheet) + d)); sheet.dataset.sheet = SHEETS[i]; };
 let touchY = null;
+// 모바일 키보드: 브라우저가 화면을 위로 밀어 올리는 대신, 앱 높이를 '키보드를 뺀 보이는 영역'에 맞춘다
+if (window.visualViewport) {
+  const vv = window.visualViewport;
+  const fit = () => {
+    document.documentElement.style.setProperty('--app-h', Math.round(vv.height) + 'px');
+    if (vv.offsetTop || window.scrollY) window.scrollTo(0, 0);   // iOS가 밀어 올린 화면을 되돌림
+  };
+  vv.addEventListener('resize', fit); vv.addEventListener('scroll', fit); fit();
+}
+// 검색창을 누르면 시트를 최대로 펴고 검색창이 맨 위에 오도록 스크롤
+$('#searchBox').addEventListener('focusin', () => {
+  if (!matchMedia('(max-width:760px)').matches) return;
+  sheet.dataset.sheet = 'max';
+  setTimeout(() => sheet.scrollTo({ top:Math.max(0, $('#searchBox').offsetTop - 44), behavior:'smooth' }), 260);
+});
 $('#sheetHandle').addEventListener('click', () => setSheet(sheet.dataset.sheet === 'max' ? -2 : 1));
 $('#sheetHandle').addEventListener('touchstart', e => { touchY = e.touches[0].clientY; }, { passive:true });
 $('#sheetHandle').addEventListener('touchend', e => {
