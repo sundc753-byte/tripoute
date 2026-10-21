@@ -77,7 +77,10 @@
   body.editing .mv { display:inline-flex; gap:2px; }
   body.editing .mv button { padding:0; width:26px; height:26px; line-height:1; font-size:11px; }
   .dsel { width:auto !important; padding:3px 6px !important; font-size:11px !important; border-radius:8px !important; color:var(--muted) !important; background:var(--soft) !important; border:none !important; }
-  .memo { margin-top:6px; width:100%; border:none !important; background:var(--soft) !important; border-radius:8px !important; padding:7px 9px !important; font-size:13px !important; }
+  .memotext { margin-top:6px; padding:7px 9px; border-radius:8px; background:var(--soft); font-size:13px; line-height:1.45; white-space:pre-wrap; word-break:break-word; }
+  body.editing .memotext { display:none; }
+  .memo { display:none; margin-top:6px; width:100%; border:none !important; background:var(--soft) !important; border-radius:8px !important; padding:7px 9px !important; font-size:13px !important; }
+  body.editing .memo { display:block; }
   .memo::placeholder { color:var(--muted); }
   .memo:focus { outline:2px solid var(--accent); }
   .leg { margin:2px 0 2px 11px; padding:5px 0 5px 22px; border-left:2px dashed var(--accent); font-size:12px; color:var(--muted); min-height:26px; }
@@ -88,7 +91,10 @@
   /* 하단 액션 */
   .foot { padding:10px 18px 12px; border-top:1px solid var(--line); background:var(--card); }
   .actions { display:flex; gap:8px; }
-  .actions button { flex:none; padding:13px 16px; font-size:14px; }
+  .btnlike { display:inline-flex; align-items:center; justify-content:center; text-decoration:none; padding:8px 12px; border-radius:10px; font-size:13px; font-weight:500; background:var(--soft); color:var(--text); }
+  a.primary.btnlike { background:var(--accent); color:#fff; }
+  .btnlike.disabled { opacity:.5; }
+  .actions button, .actions .btnlike { flex:none; padding:13px 16px; font-size:14px; }
   .actions .primary { flex:1; font-weight:700; }
   .more { margin-top:8px; }
   .more summary { cursor:pointer; color:var(--muted); font-size:12px; list-style:none; text-align:center; padding:2px; }
@@ -193,7 +199,7 @@
     input[type=text], input[type=password], input[type=date], select { font-size:16px; }
     .ddate { font-size:13px !important; }
     #list { order:4; flex:none; overflow:visible; padding:0 16px 12px; }
-    .foot { order:5; position:sticky; bottom:0; z-index:3; padding:10px 16px; }
+    .foot { display:none; }   /* 모바일 일정 탭: 공유·구글맵 열기 줄 삭제 (공유는 '여행' 탭 카드, 구글맵은 '지도' 탭 카드에서) */
     #err { left:12px; right:12px; top:12px; max-width:none; }
     #toast { bottom:calc(var(--nav) + 16px); }
     .panel-head { padding-top:calc(18px + env(safe-area-inset-top)); }
@@ -212,7 +218,7 @@
     #mapDays .chip.on { background:var(--accent); color:#fff; }
     .mapcard { position:absolute; left:12px; right:12px; bottom:36px;   /* 지도 왼쪽 아래 구글 로고와 오른쪽 아래 출처 표시를 가리지 않도록 위로 띄움 */ background:var(--card); border-radius:18px; padding:12px 14px; box-shadow:0 4px 18px rgba(0,0,0,.22); pointer-events:auto; display:flex; align-items:center; gap:8px; }
     .mc-sum { flex:1; min-width:0; font-size:13px; font-weight:700; line-height:1.4; }
-    .mapcard button { padding:10px 12px; flex:none; }
+    .mapcard button, .mapcard .btnlike { padding:10px 12px; flex:none; }
     /* 내 정보 화면 */
     #accountPane { padding:calc(18px + env(safe-area-inset-top)) 18px 18px; flex-direction:column; }
     #accountPane h2 { margin:0 0 14px; font-size:22px; font-weight:700; letter-spacing:-.02em; }
@@ -250,7 +256,7 @@
     <footer class="foot">
       <div class="actions">
         <button id="share">공유</button>
-        <button class="primary" id="openGmaps">구글맵에서 열기</button>
+        <a class="primary btnlike" id="openGmaps" href="#" target="_blank" rel="noopener">구글맵에서 열기</a>
       </div>
       <details class="more">
         <summary>더보기</summary>
@@ -272,7 +278,7 @@
   <div id="map"></div>
   <div class="mapui" id="mapUi">
     <div class="maptop"><div id="mapSearch"></div><nav class="days" id="mapDays" aria-label="일자"></nav></div>
-    <div class="mapcard"><div class="mc-sum" id="mapSum"></div><button id="mapToList">일정 보기</button><button class="primary" id="mapGmaps">구글맵</button></div>
+    <div class="mapcard"><div class="mc-sum" id="mapSum"></div><button id="mapToList">일정 보기</button><a class="primary btnlike" id="mapGmaps" href="#" target="_blank" rel="noopener">구글맵</a></div>
   </div>
   <nav class="mnav" aria-label="하단 메뉴">
     <button data-mtab="trips"><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="7" width="18" height="13" rx="2"/><path d="M9 7V5a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v2"/></svg>여행</button>
@@ -317,7 +323,10 @@
 <script src="config.js"></script>
 <script>
 const $ = s => document.querySelector(s);
-const KEY_STORE = 'tripoute.apikey', DATA_STORE = 'tripoute.trip', LAST_STORE = 'tripoute.lastTrip';
+const KEY_STORE = 'tripoute.apikey', DATA_STORE = 'tripoute.trip', LAST_STORE = 'tripoute.lastTrip', UI_STORE = 'tripoute.ui';
+// 이전에 저장해 둔 화면 상태(탭·일자): 시작하면서 처음 화면을 그릴 때 덮어쓰기 전에 먼저 읽어 둠
+const savedUi = (() => { try { return JSON.parse(localStorage.getItem(UI_STORE)); } catch { return null; } })();
+let uiReady = false;   // 복원이 끝나기 전에는 화면 상태를 저장하지 않음
 const MODE_LABEL = { STRAIGHT:'직선', WALKING:'도보', TRANSIT:'대중교통', DRIVING:'자동차', BICYCLING:'자전거' };
 const ORANGE = '#ff7a00';
 const DAY_COLORS = [ORANGE, '#2f80ed', '#27ae60', '#9b51e0', '#eb5757', '#00a3a3'];   // '전체' 보기에서 일자별 색
@@ -789,7 +798,8 @@ function stopHtml(s, di, i, last) {
             <button class="x" data-del="${di}:${i}" title="삭제">×</button>
           </div>
         </div>
-        <input type="text" class="memo" data-memo="${di}:${i}" placeholder="메모 추가" value="${esc(s.memo)}">
+        ${s.memo ? `<div class="memotext" data-memotext="${di}:${i}">${esc(s.memo)}</div>` : ''}
+        <input type="text" class="memo" data-memo="${di}:${i}" placeholder="메모 추가" value="${esc(s.memo)}"${editing ? '' : ' readonly'}>
       </div>
     </div>
     ${last ? '' : legHtml(di, i)}`;
@@ -803,7 +813,7 @@ function renderList() {
       <section class="day" data-day="${di}">
         <div class="dayhead">
           <div class="dtitle"><b>Day ${di + 1}</b><input type="date" class="ddate" data-date="${di}" value="${esc(d.date)}" aria-label="날짜"></div>
-          <div class="dsum" data-daysum="${di}">${stops.length}곳</div>
+          <div class="dsum" data-daysum="${di}">${esc(sumTexts[di] || `${stops.length}곳`)}</div>
           <div class="dacts"><button class="editbtn ${editing ? 'on' : ''}" data-edit aria-pressed="${editing}">${editing ? '완료' : '편집'}</button></div>
           <div class="dedit">
             ${stops.length > 3 ? `<button data-opt="${di}" title="첫 장소와 마지막 장소를 고정하고 중간 순서를 최적화">순서 최적화</button>` : ''}
@@ -843,6 +853,8 @@ function render(fit = false, persist = true) {
   renderTabs();
   renderMapUi();
   renderList();
+  updateGmapsLinks();
+  saveUi();
   if (!map) return;
   drawMarkers(fit);
   drawRoute();
@@ -997,7 +1009,15 @@ function gmapsUrl() {
   if (s.length > 2) q.set('waypoints', s.slice(1, -1).map(p).join('|'));
   return 'https://www.google.com/maps/dir/?' + q;
 }
-$('#openGmaps').addEventListener('click', () => { const u = gmapsUrl(); u ? window.open(u, '_blank', 'noopener') : toast('장소를 2곳 이상 추가하세요'); });
+// 구글맵 열기는 스크립트(window.open)가 아니라 진짜 링크로 처리: 아이폰 홈 화면 앱에서도 앱 화면이 그대로 남고 돌아올 수 있음
+function updateGmapsLinks() {
+  const u = gmapsUrl();
+  ['#openGmaps', '#mapGmaps'].forEach(sel => { const a = $(sel); a.href = u || '#'; a.classList.toggle('disabled', !u); });
+}
+document.addEventListener('click', e => {
+  const a = e.target.closest('#openGmaps, #mapGmaps');
+  if (a && a.getAttribute('href') === '#') { e.preventDefault(); toast('장소를 2곳 이상 추가하세요'); }
+});
 
 $('#share').addEventListener('click', () => openShare(null));
 $('#export').addEventListener('click', () => {
@@ -1111,8 +1131,10 @@ $('#roCopy').addEventListener('click', () => copyTrip(trip.id));
 // 편집 모드: 일자 머리말 오른쪽의 '편집'을 누르면 장소 카드의 일자 이동·위아래·삭제 버튼과 일자 작업(순서 최적화·역순·일자 삭제)이 나타남
 let editing = false;
 function setEditing(on) {
+  const was = editing;
   editing = on;
   document.body.classList.toggle('editing', on);
+  if (was !== on) renderList();      // 메모를 글자 ↔ 입력칸으로 바꾸기 위해 다시 그림 (구간·일자 요약 문구는 보관된 값을 사용)
   document.querySelectorAll('[data-edit]').forEach(b => { b.textContent = on ? '완료' : '편집'; b.classList.toggle('on', on); b.setAttribute('aria-pressed', String(on)); });
 }
 
@@ -1166,11 +1188,19 @@ function placeMap(fit = true) {
   google.maps.event.trigger(map, 'resize');
   if (fit || mini) drawMarkers(true);
 }
+// 화면 상태(탭·일자)를 저장해 두었다가, 구글맵 등 다른 앱에 갔다 돌아와 앱이 다시 열려도 같은 화면으로 복원 (30분 이내, 같은 여행일 때)
+function saveUi() { if (!uiReady) return; safe(() => localStorage.setItem(UI_STORE, JSON.stringify({ tab:appEl.dataset.tab, view, id:trip.id, t:Date.now() }))); }
+function restoreUi(ui = savedUi) {
+  if (!ui || Date.now() - ui.t > 30 * 60 * 1000 || (ui.id || null) !== (trip.id || null)) return;
+  if (ui.view === 'all' || (Number.isInteger(ui.view) && ui.view < trip.days.length)) view = ui.view;
+  if (isMobile() && ['schedule', 'map', 'account'].includes(ui.tab)) setTab(ui.tab, false);
+}
 function setTab(tab, fit = true) {
   appEl.dataset.tab = tab;
   document.querySelectorAll('.mnav button').forEach(b => b.classList.toggle('on', b.dataset.mtab === tab));
   placeMap(fit);
   if (tab !== 'map') infoWindow?.close();
+  saveUi();
 }
 $('#miniOpen').addEventListener('click', () => setTab('map'));
 document.querySelector('.mnav').addEventListener('click', e => {
@@ -1180,7 +1210,6 @@ document.querySelector('.mnav').addEventListener('click', e => {
   setTab(b.dataset.mtab);
 });
 $('#mapToList').addEventListener('click', () => setTab('schedule'));
-$('#mapGmaps').addEventListener('click', () => $('#openGmaps').click());
 $('#mapDays').addEventListener('click', e => {
   const c = e.target.closest('[data-view]'); if (!c) return;
   view = c.dataset.view === 'all' ? 'all' : +c.dataset.view;
@@ -1235,7 +1264,12 @@ $('#updateNow').addEventListener('click', async () => {
 });
 $('#updateLater').addEventListener('click', () => $('#updateBar').classList.remove('show'));
 addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') checkUpdate(); });   // 홈 화면에서 앱으로 돌아올 때
-addEventListener('pageshow', e => { if (e.persisted) checkUpdate(); });
+addEventListener('pageshow', e => { if (e.persisted) location.reload(); });   // 뒤로가기 캐시로 복원되면 지도 등이 깨질 수 있어 새로 불러옴(화면 상태는 위에서 복원)
+let hiddenAt = 0;
+addEventListener('visibilitychange', () => {   // 오래 가려져 있다가 돌아오면 지도를 다시 그림
+  if (document.visibilityState === 'hidden') hiddenAt = Date.now();
+  else if (map && hiddenAt && Date.now() - hiddenAt > 15000) setTimeout(() => { google.maps.event.trigger(map, 'resize'); drawMarkers(false); drawRoute(); }, 300);
+});
 addEventListener('online', checkUpdate);
 setInterval(checkUpdate, 5 * 60 * 1000);
 setTimeout(checkUpdate, 4000);
@@ -1259,7 +1293,7 @@ const SHARED_KEY = (window.TRIPOUTE_API_KEY || '').trim();
 const key = SHARED_KEY || safe(() => localStorage.getItem(KEY_STORE));
 if (SHARED_KEY) $('#changeKey').style.display = 'none';
 render(false, false);
-tripReady.then(() => render(false, false));   // 지도가 없어도(키 미입력 등) 불러온 여행을 목록에 표시
+tripReady.then(() => { restoreUi(); uiReady = true; render(false, false); });   // 지도가 없어도(키 미입력 등) 불러온 여행을 목록에 표시
 if (key) start(key).catch(err => { console.error(err); showError('지도를 불러오지 못했습니다', esc(err?.message || err)); });
 else showKeyBox(true);
 </script>
