@@ -21,7 +21,8 @@
   #map { position:relative; width:100%; height:100%; overflow:hidden; }
   aside > :not(#list):not(#tripsPanel) { flex-shrink:0; }   /* 시트가 낮아도 헤더·탭·하단 버튼이 눌려 찌그러지지 않게 */
   button { padding:8px 12px; border:none; border-radius:10px; background:var(--soft); color:var(--text); cursor:pointer; font-size:13px; font-weight:500; }
-  button:hover { filter:brightness(.97); }
+  @media (hover:hover) { button:hover { filter:brightness(.97); } }   /* 터치 기기(아이폰)에서는 호버로 인한 첫 터치 무시를 막기 위해 제외 */
+  button, a, .stop, .name { touch-action:manipulation; }
   button.primary { background:var(--accent); color:#fff; }
   button.danger { color:var(--danger); }
   button.ghost { background:none; color:var(--muted); padding:6px 8px; }
@@ -66,7 +67,9 @@
   .dedit { order:4; flex-basis:100%; display:none; gap:6px; flex-wrap:wrap; }
   body.editing .dedit { display:flex; }
   .dedit button { padding:6px 11px; font-size:12px; }
-  .stop { display:flex; gap:10px; align-items:flex-start; }
+  .stop { display:flex; gap:10px; align-items:flex-start; cursor:pointer; }
+  body.editing .stop { cursor:default; }
+  .stop input { cursor:text; }
   .stop.over .card { outline:2px dashed var(--accent); outline-offset:-2px; }
   .num { flex:none; width:24px; height:24px; border-radius:50%; background:var(--accent); color:#fff; font-size:12px; font-weight:700; display:grid; place-items:center; margin-top:12px; cursor:grab; }
   .card.info { flex:1; min-width:0; border:1px solid var(--line); border-radius:14px; padding:10px 12px; background:var(--card); }
@@ -192,7 +195,7 @@
     #searchBox { display:none; }   /* 모바일: 검색은 '지도' 탭에서 */
     .app[data-tab="schedule"] #mapSlot { display:block; order:3; position:relative; flex-shrink:0; height:190px; margin:4px 16px 2px; border-radius:14px; overflow:hidden; background:var(--soft); }
     #map.mini { position:relative !important; inset:auto; width:100%; height:190px; }
-    #miniOpen { position:absolute; inset:0; z-index:2; background:transparent; border-radius:0; padding:0; }
+    #miniOpen { position:absolute; inset:0; z-index:2; background:transparent; border-radius:0; padding:0; cursor:pointer; -webkit-appearance:none; appearance:none; touch-action:manipulation; }
     .addplace { display:block; width:100%; margin-top:14px; padding:15px; border:1px dashed var(--accent); border-radius:14px; background:var(--accent-soft); color:var(--accent); font-weight:700; font-size:15px; }
     .titleinput { font-size:26px !important; }
     .search, .days { padding-left:16px; padding-right:16px; }
@@ -957,9 +960,15 @@ list.addEventListener('click', e => {
   const rev = e.target.closest('[data-rev]'); if (rev) { trip.days[+rev.dataset.rev].stops.reverse(); return render(); }
   const opt = e.target.closest('[data-opt]'); if (opt) { optimizeDay(+opt.dataset.opt); return; }
   const dd = e.target.closest('[data-delday]'); if (dd) return removeDay(+dd.dataset.delday);
-  const f = e.target.closest('[data-focus]');
-  if (f) { const [d, i] = pair(f.dataset.focus), s = trip.days[d].stops[i]; if (isMobile()) setTab('map', false); map.panTo({ lat:s.lat, lng:s.lng }); map.setZoom(Math.max(map.getZoom(), 15)); }
+  // 장소 카드 어디를 눌러도(번호·이름·카테고리·빈 곳) 지도에서 그 장소를 보여줌. 버튼·선택·입력칸은 제외, 편집 중에는 이동하지 않음
+  const st = e.target.closest('.stop');
+  if (st && !editing && !e.target.closest('button, select, input, textarea, a, label')) focusStop(+st.dataset.d, +st.dataset.i);
 });
+function focusStop(d, i) {
+  const s = trip.days[d]?.stops[i]; if (!s) return;
+  if (isMobile()) setTab('map', false);
+  if (map) { map.panTo({ lat:s.lat, lng:s.lng }); map.setZoom(Math.max(map.getZoom(), 15)); }
+}
 list.addEventListener('input', e => {
   const m = e.target.closest('[data-memo]'); if (m) { const [d, i] = pair(m.dataset.memo); trip.days[d].stops[i].memo = m.value; save(); }
 });
