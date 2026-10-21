@@ -23,6 +23,7 @@
   button { padding:8px 12px; border:none; border-radius:10px; background:var(--soft); color:var(--text); cursor:pointer; font-size:13px; font-weight:500; }
   @media (hover:hover) { button:hover { filter:brightness(.97); } }   /* 터치 기기(아이폰)에서는 호버로 인한 첫 터치 무시를 막기 위해 제외 */
   button, a, .stop, .name { touch-action:manipulation; }
+  [hidden] { display:none !important; }   /* hidden 속성이 다른 display 규칙에 덮이지 않도록 */
   button.primary { background:var(--accent); color:#fff; }
   button.danger { color:var(--danger); }
   button.ghost { background:none; color:var(--muted); padding:6px 8px; }
@@ -105,6 +106,7 @@
   .morebtns { display:flex; gap:6px; flex-wrap:wrap; margin-top:8px; }
   .morebtns button.danger { color:var(--danger); }
   .morebtns button, .morebtns a { font-size:12px; padding:7px 10px; border-radius:9px; background:var(--soft); color:var(--text); text-decoration:none; font-weight:500; }
+  .ver { margin-top:4px; font-size:11px; color:var(--muted); text-align:center; }
   .who { margin-top:8px; font-size:12px; color:var(--muted); text-align:center; word-break:break-all; }
 
   /* 오버레이 */
@@ -266,6 +268,7 @@
       <details class="more">
         <summary>더보기</summary>
         <div class="morebtns">
+          <button id="checkUpdateBtn">업데이트 확인</button>
           <button id="roCopy" hidden>내 것으로 복사 (공유받은 여행)</button>
           <button id="newTrip">새 여행</button>
           <button id="export">내보내기</button>
@@ -276,6 +279,7 @@
           <button id="logout">로그아웃</button>
         </div>
         <div class="who" id="who"></div>
+        <div class="ver" id="verLine"></div>
       </details>
     </footer>
     <section id="accountPane"><h2>내 정보</h2></section>
@@ -1251,18 +1255,32 @@ if (window.visualViewport) {
 /* ---------- 새 버전 알림 (홈 화면 웹앱은 오래 켜 둔 채로 남아 있어 배포가 바뀌어도 옛 화면이 보임) ---------- */
 // 서버가 내려 준 HTML에 이 화면의 버전이 들어 있고(meta app-version), 서버의 현재 버전과 다르면 배너로 알립니다.
 const appVersion = () => document.querySelector('meta[name="app-version"]')?.content || '';
-async function checkUpdate() {
+let UPDATE_TIMEOUT_MS = 8000;
+async function checkUpdate(manual = false) {
   const mine = appVersion();
-  if (!mine || checkUpdate.busy) return;               // 로컬 개발 서버 등 버전이 없으면 건너뜀
+  if (!mine) { if (manual === true) toast('이 환경에서는 버전 확인을 쓸 수 없어요'); return null; }   // 로컬 개발 서버 등 버전이 없으면 건너뜀
+  if (checkUpdate.busy && manual !== true) return null;
   checkUpdate.busy = true;
+  const ctl = new AbortController(), timer = setTimeout(() => ctl.abort(), UPDATE_TIMEOUT_MS);   // 응답이 멈춰도 다음 확인이 막히지 않게 시간 제한
   try {
-    const res = await fetch('/api/version', { cache:'no-store' });
-    if (!res.ok) return;
+    const res = await fetch('/api/version', { cache:'no-store', signal:ctl.signal });
+    if (!res.ok) throw new Error('version ' + res.status);
     const { v } = await res.json();
-    if (v && v !== mine) $('#updateBar').classList.add('show');
-  } catch { /* 오프라인 등은 다음 확인 때 다시 */ }
-  finally { checkUpdate.busy = false; }
+    if (v && v !== mine) { $('#updateBar').classList.add('show'); return true; }
+    if (manual === true) toast('최신 버전이에요');
+    return false;
+  } catch {
+    if (manual === true) toast('버전을 확인하지 못했어요. 잠시 후 다시 시도해 주세요');
+    return null;                                          // 오프라인 등은 아래의 재시도·다음 확인 때 다시
+  } finally { clearTimeout(timer); checkUpdate.busy = false; }
 }
+// 앱으로 돌아온 직후에는 네트워크가 아직 준비되지 않았을 수 있어 몇 번 더 확인
+function checkUpdateSoon(delays = [0, 2500, 8000]) {
+  delays.forEach(ms => setTimeout(() => { if (document.visibilityState === 'visible' && !$('#updateBar').classList.contains('show')) checkUpdate(); }, ms));
+}
+// 설정 화면: 현재 앱 버전 표시 + 수동 확인
+$('#verLine').textContent = appVersion() ? `앱 버전 ${appVersion().slice(0, 7)}` : '';
+$('#checkUpdateBtn').addEventListener('click', () => checkUpdate(true));
 $('#updateNow').addEventListener('click', async () => {
   const btn = $('#updateNow');
   btn.disabled = true; btn.textContent = '저장 후 업데이트 중…';
@@ -1274,16 +1292,17 @@ $('#updateNow').addEventListener('click', async () => {
   location.replace(location.pathname + '?r=' + Date.now() + location.hash);   // 캐시를 피해 새로 불러옴
 });
 $('#updateLater').addEventListener('click', () => $('#updateBar').classList.remove('show'));
-addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') checkUpdate(); });   // 홈 화면에서 앱으로 돌아올 때
+addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') checkUpdateSoon(); });   // 홈 화면에서 앱으로 돌아올 때
 addEventListener('pageshow', e => { if (e.persisted) location.reload(); });   // 뒤로가기 캐시로 복원되면 지도 등이 깨질 수 있어 새로 불러옴(화면 상태는 위에서 복원)
 let hiddenAt = 0;
 addEventListener('visibilitychange', () => {   // 오래 가려져 있다가 돌아오면 지도를 다시 그림
   if (document.visibilityState === 'hidden') hiddenAt = Date.now();
   else if (map && hiddenAt && Date.now() - hiddenAt > 15000) setTimeout(() => { google.maps.event.trigger(map, 'resize'); drawMarkers(false); drawRoute(); }, 300);
 });
-addEventListener('online', checkUpdate);
-setInterval(checkUpdate, 5 * 60 * 1000);
-setTimeout(checkUpdate, 4000);
+addEventListener('focus', () => checkUpdateSoon([0, 3000]));
+addEventListener('online', () => checkUpdateSoon([0, 3000]));
+setInterval(() => { if (document.visibilityState === 'visible') checkUpdate(); }, 2 * 60 * 1000);   // 켜 둔 채로 있을 때 2분마다
+checkUpdateSoon([1500, 6000, 15000]);                      // 시작 직후
 if (location.search.startsWith('?r=')) history.replaceState(null, '', location.pathname + location.hash);   // 업데이트 직후 주소의 캐시 방지용 꼬리를 정리
 
 /* ---------- 로그인 사용자 ---------- */
