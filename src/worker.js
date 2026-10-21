@@ -85,7 +85,9 @@ function ensureSchema(env) {
       data TEXT NOT NULL,
       stop_count INTEGER NOT NULL DEFAULT 0,
       created_at INTEGER NOT NULL,
-      updated_at INTEGER NOT NULL
+      updated_at INTEGER NOT NULL,
+      version INTEGER NOT NULL DEFAULT 1,
+      updated_by INTEGER
     )`),
     env.DB.prepare(`CREATE TABLE IF NOT EXISTS trip_shares (
       trip_id TEXT NOT NULL,
@@ -95,7 +97,14 @@ function ensureSchema(env) {
     )`),
     env.DB.prepare('CREATE INDEX IF NOT EXISTS idx_trips_owner ON trips (owner_id, updated_at)'),
     env.DB.prepare('CREATE INDEX IF NOT EXISTS idx_shares_user ON trip_shares (user_id, created_at)'),
-  ]).catch(err => { schemaReady = null; throw err; });
+  ]).then(async () => {
+    // 공동 편집 도입 전에 만들어진 trips 테이블에는 새 컬럼을 추가합니다.
+    const { results } = await env.DB.prepare('PRAGMA table_info(trips)').all();
+    const cols = results.map(c => c.name), alters = [];
+    if (!cols.includes('version')) alters.push(env.DB.prepare('ALTER TABLE trips ADD COLUMN version INTEGER NOT NULL DEFAULT 1'));
+    if (!cols.includes('updated_by')) alters.push(env.DB.prepare('ALTER TABLE trips ADD COLUMN updated_by INTEGER'));
+    if (alters.length) await env.DB.batch(alters);
+  }).catch(err => { schemaReady = null; throw err; });
   return schemaReady;
 }
 
@@ -277,25 +286,25 @@ function sanitizeTrip(body) {
   };
 }
 
-// 소유자이거나 공유받은 사용자만 열람할 수 있습니다.
+// 소유자이거나 공유받은 사용자(공동 편집자)만 접근할 수 있습니다.
 async function loadTrip(env, id, session) {
   const t = await env.DB.prepare(
-    `SELECT t.id, t.owner_id, t.title, t.data, t.updated_at, u.email AS owner_email
-       FROM trips t JOIN users u ON u.id = t.owner_id WHERE t.id = ?`
+    `SELECT t.id, t.owner_id, t.title, t.data, t.updated_at, t.version, u.email AS owner_email, uu.email AS updated_by_email
+       FROM trips t JOIN users u ON u.id = t.owner_id LEFT JOIN users uu ON uu.id = t.updated_by WHERE t.id = ?`
   ).bind(id).first();
   if (!t) return null;
   if (t.owner_id === session.id) return { ...t, role: 'owner' };
   const sh = await env.DB.prepare('SELECT 1 AS ok FROM trip_shares WHERE trip_id = ? AND user_id = ?').bind(id, session.id).first();
-  return sh ? { ...t, role: 'viewer' } : null;
+  return sh ? { ...t, role: 'editor' } : null;
 }
 
 async function createTrip(env, ownerId, clean, titleOverride) {
   const c = await env.DB.prepare('SELECT COUNT(*) AS c FROM trips WHERE owner_id = ?').bind(ownerId).first();
   if (c.c >= MAX_TRIPS_PER_USER) return null;
   const id = crypto.randomUUID(), t = now();
-  await env.DB.prepare('INSERT INTO trips (id, owner_id, title, data, stop_count, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)')
-    .bind(id, ownerId, titleOverride ?? clean.title, clean.data, clean.count, t, t).run();
-  return { id, updated_at: t };
+  await env.DB.prepare('INSERT INTO trips (id, owner_id, title, data, stop_count, created_at, updated_at, version, updated_by) VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?)')
+    .bind(id, ownerId, titleOverride ?? clean.title, clean.data, clean.count, t, t, ownerId).run();
+  return { id, updated_at: t, version: 1 };
 }
 
 async function tripsApi(request, env, url, session) {
@@ -337,14 +346,13 @@ async function tripsApi(request, env, url, session) {
 
   // 열람
   if (!action && method === 'GET') {
-    const out = { id: trip.id, title: trip.title, role: trip.role, owner_email: trip.owner_email, updated_at: trip.updated_at, ...JSON.parse(trip.data) };
-    if (isOwner) {
-      const { results } = await env.DB.prepare(
-        'SELECT u.id, u.email FROM trip_shares s JOIN users u ON u.id = s.user_id WHERE s.trip_id = ? ORDER BY s.created_at'
-      ).bind(id).all();
-      out.shared_with = results;
-    }
-    return json(out);
+    // 공동 편집 중 변경 확인(폴링): 버전이 같으면 본문 없이 응답
+    if (url.searchParams.get('since') === String(trip.version)) return json({ unchanged: true, version: trip.version });
+    const { results } = await env.DB.prepare(
+      'SELECT u.id, u.email FROM trip_shares s JOIN users u ON u.id = s.user_id WHERE s.trip_id = ? ORDER BY s.created_at'
+    ).bind(id).all();
+    return json({ id: trip.id, title: trip.title, role: trip.role, owner_email: trip.owner_email, updated_at: trip.updated_at,
+                  version: trip.version, updated_by_email: trip.updated_by_email, shared_with: results, ...JSON.parse(trip.data) });
   }
 
   // 복사 (소유자/공유받은 사용자 모두 자기 여행으로 복사 가능)
@@ -362,17 +370,26 @@ async function tripsApi(request, env, url, session) {
     return json({ ok: true });
   }
 
-  // 이하는 소유자만
-  if (!isOwner) return json({ error: '수정 권한이 없습니다.' }, 403);
-
+  // 수정 (소유자 + 공동 편집자). 내가 본 버전(base_version)이 최신일 때만 저장하고, 아니면 충돌로 응답합니다.
   if (!action && method === 'PUT') {
-    const clean = sanitizeTrip(await readJson(request));
-    if (!clean) return json({ error: '여행 데이터가 올바르지 않습니다.' }, 400);
+    const body = await readJson(request);
+    const clean = sanitizeTrip(body);
+    if (!clean || !Number.isInteger(body.base_version)) return json({ error: '여행 데이터가 올바르지 않습니다.' }, 400);
     const t = now();
-    await env.DB.prepare('UPDATE trips SET title = ?, data = ?, stop_count = ?, updated_at = ? WHERE id = ? AND owner_id = ?')
-      .bind(clean.title, clean.data, clean.count, t, id, session.id).run();
-    return json({ ok: true, updated_at: t });
+    const res = await env.DB.prepare(
+      'UPDATE trips SET title = ?, data = ?, stop_count = ?, updated_at = ?, version = version + 1, updated_by = ? WHERE id = ? AND version = ?'
+    ).bind(clean.title, clean.data, clean.count, t, session.id, id, body.base_version).run();
+    if (!res?.meta?.changes) {
+      const cur = await loadTrip(env, id, session);
+      if (!cur) return json({ error: '여행을 찾을 수 없습니다.' }, 404);
+      return json({ error: '다른 사람이 먼저 수정했어요.', conflict: true,
+                    trip: { title: cur.title, version: cur.version, updated_by_email: cur.updated_by_email, ...JSON.parse(cur.data) } }, 409);
+    }
+    return json({ ok: true, version: body.base_version + 1, updated_at: t });
   }
+
+  // 이하는 소유자만
+  if (!isOwner) return json({ error: '소유자만 할 수 있어요.' }, 403);
 
   if (!action && method === 'DELETE') {
     await env.DB.batch([
