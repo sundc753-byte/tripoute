@@ -405,6 +405,21 @@ async function api(path, method = 'GET', body) {
   return data;
 }
 
+/* ---------- 구글 API 사용량 집계 (관리자 화면용) ---------- */
+// 앱이 구글로 보낸 요청 수를 종류별로 세어 모아 두었다가 30초마다(그리고 앱을 닫을 때) 서버에 보냅니다. 앱이 직접 센 추정치입니다.
+let usagePending = {};
+const countUse = (kind, n = 1) => { usagePending[kind] = (usagePending[kind] || 0) + n; };
+async function flushUsage() {
+  const counts = usagePending;
+  if (!Object.keys(counts).length) return;
+  usagePending = {};
+  try { await api('/api/usage', 'POST', { counts }); }
+  catch { for (const [k, v] of Object.entries(counts)) usagePending[k] = Math.min((usagePending[k] || 0) + v, 5000); }   // 실패하면 다음에 다시 보냄
+}
+setInterval(flushUsage, 30000);
+addEventListener('pagehide', flushUsage);
+addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') flushUsage(); });
+
 /* ---------- 자동 저장 (계정별) + 공동 편집 ---------- */
 let saveTimer = null, savePromise = Promise.resolve(), retryTimer = null, saving = 0;
 const setSaveState = (text, bad = false) => { const e = $('#saveState'); e.textContent = text; e.classList.toggle('bad', bad); };
@@ -596,6 +611,7 @@ async function start(key) {
 
   map = new Map($('#map'), { center:{lat:37.5665,lng:126.978}, zoom:12, disableDefaultUI:true, zoomControl:!matchMedia('(max-width:760px)').matches, gestureHandling:'greedy', clickableIcons:true });
   geocoder = new google.maps.Geocoder();
+  countUse('map_load');
   placeMap(false);   // 모바일 일정 탭이면 미니 지도 설정
 
   // 장소 검색 (Places 자동완성) — 실패해도 지도는 계속 사용 가능
@@ -652,6 +668,7 @@ async function initSearch() {
   const onSelect = async e => {
     try {
       const place = e.place ?? e.placePrediction?.toPlace();
+      countUse('autocomplete_select'); countUse('place_details');
       await place.fetchFields({ fields:['id', 'displayName', 'formattedAddress', 'location', 'primaryTypeDisplayName'] });
       addStop({ name:place.displayName, address:place.formattedAddress, lat:place.location.lat(), lng:place.location.lng(), placeId:place.id || '', category:place.primaryTypeDisplayName || '' });
       ac.value = '';
@@ -728,6 +745,7 @@ async function showInfo(latLng, placeId) {
     if (placeId) {
       const { Place } = await google.maps.importLibrary('places');
       const place = new Place({ id:placeId });
+      countUse('place_details_rich');
       await place.fetchFields({ fields:['displayName', 'formattedAddress', 'location', 'rating', 'userRatingCount', 'photos', 'googleMapsURI', 'primaryTypeDisplayName', 'attributions'] });
       info = {
         placeId, category:place.primaryTypeDisplayName || '',
@@ -738,11 +756,13 @@ async function showInfo(latLng, placeId) {
         attributions:place.attributions || [],                          // 제3자 출처 표시
       };
     } else {
+      countUse('geocode');
       const res = await geocoder.geocode({ location:latLng });
       if (res.results[0]) info = { ...info, name:shortAddress(res.results[0]), address:res.results[0].formatted_address };
     }
   } catch (err) { console.warn('place info failed', err); }
   if (seq !== showInfo.seq) return;
+  if (info.photo) countUse('place_photo');
   infoWindow.setContent(buildInfoNode(info));
 }
 
@@ -894,6 +914,7 @@ function routeLeg(a, b, mode) {
   if (!routeCache.has(k)) {
     routeCache.set(k, (async () => {
       const { Route } = await google.maps.importLibrary('routes');
+      countUse('route_leg');
       const { routes } = await Route.computeRoutes({ origin:{ lat:a.lat, lng:a.lng }, destination:{ lat:b.lat, lng:b.lng }, travelMode:mode, fields:['path', 'distanceMeters', 'durationMillis'] });
       const r = routes?.[0];
       return r?.path?.length ? { path:r.path.map(toLL), dist:r.distanceMeters, dur:r.durationMillis } : null;

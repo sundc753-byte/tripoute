@@ -100,6 +100,13 @@ function ensureSchema(env) {
     )`),
     env.DB.prepare('CREATE INDEX IF NOT EXISTS idx_trips_owner ON trips (owner_id, updated_at)'),
     env.DB.prepare('CREATE INDEX IF NOT EXISTS idx_shares_user ON trip_shares (user_id, created_at)'),
+    env.DB.prepare(`CREATE TABLE IF NOT EXISTS usage_daily (
+      day TEXT NOT NULL,
+      user_id INTEGER NOT NULL,
+      kind TEXT NOT NULL,
+      n INTEGER NOT NULL DEFAULT 0,
+      PRIMARY KEY (day, user_id, kind)
+    )`),
   ]).then(async () => {
     // 공동 편집 도입 전에 만들어진 trips 테이블에는 새 컬럼을 추가합니다.
     const { results } = await env.DB.prepare('PRAGMA table_info(trips)').all();
@@ -232,8 +239,64 @@ async function logout(request, env, url) {
 }
 
 /* ---------- 관리자 API ---------- */
+/* ---------- 구글 지도 API 사용량 집계 ---------- */
+// 앱이 보낸 구글 요청 수를 날짜·사용자·종류별로 누적합니다. 구글 과금 기준일(미국 태평양시 자정)에 맞춰 날짜를 나눕니다.
+// 앱이 직접 센 추정치입니다(사용자가 조작할 수 있으므로 참고용).
+const USAGE_KINDS = ['map_load', 'place_details', 'place_details_rich', 'place_photo', 'geocode', 'route_leg', 'autocomplete_select'];
+const pacificDay = (d = new Date()) => d.toLocaleDateString('en-CA', { timeZone: 'America/Los_Angeles' });   // YYYY-MM-DD
+function shiftDay(day, n) { const d = new Date(day + 'T00:00:00Z'); d.setUTCDate(d.getUTCDate() + n); return d.toISOString().slice(0, 10); }
+
+async function recordUsage(request, env, session) {
+  if (!session) return json({ error: '로그인이 필요합니다.' }, 401);
+  // 과도한 요청 방지: 사용자당 1분에 6번까지
+  const key = 'usage:' + session.id;
+  if (await attemptCount(env, key, 60) >= 6) return json({ ok: true, skipped: true });
+  await bumpAttempt(env, key, 60);
+
+  const body = await readJson(request);
+  const counts = body?.counts;
+  if (!counts || typeof counts !== 'object') return json({ error: '올바르지 않은 요청입니다.' }, 400);
+  const day = pacificDay(), stmts = [];
+  for (const kind of USAGE_KINDS) {
+    const n = Math.floor(Number(counts[kind]));
+    if (!Number.isFinite(n) || n <= 0) continue;
+    stmts.push(env.DB.prepare(
+      'INSERT INTO usage_daily (day, user_id, kind, n) VALUES (?, ?, ?, ?) ON CONFLICT(day, user_id, kind) DO UPDATE SET n = n + excluded.n'
+    ).bind(day, session.id, kind, Math.min(n, 500)));   // 한 번에 보낼 수 있는 값에 상한
+  }
+  if (stmts.length) await env.DB.batch(stmts);
+  if (Math.random() < 0.02) await env.DB.prepare('DELETE FROM usage_daily WHERE day < ?').bind(shiftDay(day, -400)).run();   // 오래된 기록 정리
+  return json({ ok: true });
+}
+
+async function usageReport(env) {
+  const today = pacificDay(), monthStart = today.slice(0, 8) + '01', from14 = shiftDay(today, -13);
+  const [tod, mon, daily, perUser] = await Promise.all([
+    env.DB.prepare('SELECT kind, SUM(n) AS n FROM usage_daily WHERE day = ? GROUP BY kind').bind(today).all(),
+    env.DB.prepare('SELECT kind, SUM(n) AS n FROM usage_daily WHERE day >= ? GROUP BY kind').bind(monthStart).all(),
+    env.DB.prepare('SELECT day, SUM(n) AS n FROM usage_daily WHERE day >= ? GROUP BY day').bind(from14).all(),
+    env.DB.prepare(
+      `SELECT u.email AS email, d.kind AS kind, SUM(d.n) AS n FROM usage_daily d JOIN users u ON u.id = d.user_id
+        WHERE d.day >= ? GROUP BY d.user_id, d.kind`
+    ).bind(monthStart).all(),
+  ]);
+  const toMap = rows => Object.fromEntries(rows.map(x => [x.kind, x.n]));
+  const byDay = Object.fromEntries(daily.results.map(x => [x.day, x.n]));
+  const users = {};
+  for (const x of perUser.results) (users[x.email] ??= { email: x.email, counts: {}, total: 0 }, users[x.email].counts[x.kind] = x.n, users[x.email].total += x.n);
+  return {
+    today, month: today.slice(0, 7),
+    kinds: USAGE_KINDS,
+    today_counts: toMap(tod.results), month_counts: toMap(mon.results),
+    daily: Array.from({ length: 14 }, (_, i) => { const d = shiftDay(from14, i); return { day: d, n: byDay[d] || 0 }; }),
+    users: Object.values(users).sort((a, b) => b.total - a.total),
+  };
+}
+
 async function adminApi(request, env, url, session) {
   if (!session || session.role !== 'admin') return json({ error: '권한이 없습니다.' }, 403);
+
+  if (request.method === 'GET' && url.pathname === '/api/admin/usage') return json(await usageReport(env));
 
   if (request.method === 'GET' && url.pathname === '/api/admin/users') {
     const { results } = await env.DB.prepare(
@@ -261,6 +324,7 @@ async function adminApi(request, env, url, session) {
       await env.DB.batch([
         env.DB.prepare('DELETE FROM trip_shares WHERE user_id = ? OR trip_id IN (SELECT id FROM trips WHERE owner_id = ?)').bind(id, id),
         env.DB.prepare('DELETE FROM trips WHERE owner_id = ?').bind(id),
+        env.DB.prepare('DELETE FROM usage_daily WHERE user_id = ?').bind(id),
         env.DB.prepare('DELETE FROM sessions WHERE user_id = ?').bind(id),
         env.DB.prepare('DELETE FROM users WHERE id = ?').bind(id),
       ]);
@@ -524,6 +588,7 @@ async function handleApi(request, env, url) {
   if (p === '/api/auth/me' && request.method === 'GET') {
     return session ? json({ email: session.email, role: session.role }) : json({ error: '로그인이 필요합니다.' }, 401);
   }
+  if (p === '/api/usage' && request.method === 'POST') return recordUsage(request, env, session);
   if (p.startsWith('/api/admin/')) return adminApi(request, env, url, session);
   if (p === '/api/trips' || p.startsWith('/api/trips/')) return tripsApi(request, env, url, session);
   return json({ error: 'Not found' }, 404);
