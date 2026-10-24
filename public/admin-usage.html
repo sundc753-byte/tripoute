@@ -15,7 +15,8 @@
   html { background:var(--card); }
   body { margin:0; background:var(--bg); color:var(--text); font-family:-apple-system,"Apple SD Gothic Neo","Noto Sans KR",sans-serif; }
   header { background:var(--card); border-bottom:1px solid var(--line); padding:14px 16px; display:flex; align-items:center; gap:10px; flex-wrap:wrap; }
-  header h1 { margin:0; font-size:17px; flex:1; }
+  header h1 { margin:0; font-size:17px; flex:1; white-space:nowrap; }
+  @media (max-width:560px) { header h1 { flex-basis:100%; } }
   main { max-width:760px; margin:0 auto; padding:16px; }
   a.btn, button { padding:8px 12px; border:1px solid var(--line); border-radius:8px; background:var(--card); color:var(--text); font-size:13px; cursor:pointer; text-decoration:none; }
   button.ok { background:var(--accent); border-color:var(--accent); color:#fff; }
@@ -64,6 +65,17 @@
   <div id="msg"></div>
   <div class="h2row"><h2>구글 API 사용량 <small id="usageMonth"></small></h2><button id="refreshUsage">새로고침</button></div>
   <p class="note">앱이 구글 지도로 보낸 요청 수를 <b>앱이 직접 센 추정치</b>입니다(날짜는 구글 과금 기준인 미국 태평양시). 검색창에 글자를 입력할 때마다 나가는 자동완성 요청은 셀 수 없어 “검색 후 장소 선택” 횟수로 대신하며, 무료 한도 막대는 대략적인 참고값입니다. 실제 청구 금액은 <a href="https://console.cloud.google.com/billing" target="_blank" rel="noopener">Google Cloud 결제</a>와 <a href="https://console.cloud.google.com/google/maps-apis/metrics" target="_blank" rel="noopener">Maps Platform 측정항목</a>에서 확인하세요. 최신 요금은 <a href="https://developers.google.com/maps/billing-and-pricing/pricing" target="_blank" rel="noopener">공식 가격표</a>를 따릅니다.</p>
+  <div class="h2row"><h2>구글 콘솔 기준 <small id="baseDay"></small></h2><button id="baseEdit">수정</button></div>
+  <p class="note">앱 집계를 시작하기 전 사용분과 자동완성 요청까지 포함한, 구글 콘솔(API 및 서비스)의 <b>최근 30일</b> 요청 수입니다. 직접 입력한 값이라 콘솔에서 다시 확인해 고칠 수 있습니다.</p>
+  <div class="cards" id="baseCards"></div>
+  <form id="baseForm" class="card" hidden style="margin-top:10px">
+    <div class="lb" style="margin-bottom:8px">콘솔에서 읽은 최근 30일 요청 수</div>
+    <div id="baseInputs"></div>
+    <label class="lb" style="display:block;margin:8px 0 4px">기준일</label>
+    <input id="baseDayInput" type="date" style="padding:8px;border:1px solid var(--line);border-radius:8px;background:var(--card);color:var(--text);font-size:16px">
+    <div style="margin-top:12px;display:flex;gap:8px"><button class="ok" type="submit">저장</button><button type="button" id="baseCancel">취소</button></div>
+  </form>
+  <div class="h2row"><h2>앱이 센 사용량</h2></div>
   <div class="cards" id="usageCards"></div>
   <div class="chart" id="usageChart" aria-label="최근 14일 일별 요청 수"></div>
   <h2>사용자별 (이번 달)</h2><div class="list" id="usageUsers"></div>
@@ -73,8 +85,8 @@ const $ = s => document.querySelector(s);
 const esc = s => String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const fmt = t => new Date(t * 1000).toLocaleString('ko-KR');
 
-async function api(path, method = 'GET') {
-  const res = await fetch(path, { method, headers: { 'Content-Type': 'application/json' }, body: method === 'POST' ? '{}' : undefined });
+async function api(path, method = 'GET', payload) {
+  const res = await fetch(path, { method, headers: { 'Content-Type': 'application/json' }, body: method === 'POST' ? JSON.stringify(payload || {}) : undefined });
   if (res.status === 401 || res.status === 403) { location.href = '/login'; throw new Error('auth'); }
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(data.error || '요청 실패');
@@ -90,12 +102,17 @@ const KIND = {
   route_leg:           { label:'경로 계산 (구간)', short:'경로', limit:10000 },
   autocomplete_select: { label:'검색 후 장소 선택', short:'검색', limit:null },
 };
+const CONSOLE = { places:'Places API (New)', routes:'Routes API', maps_js:'Maps JavaScript API', geocoding:'Geocoding API' };
 const num = n => Number(n || 0).toLocaleString('ko-KR');
 
 async function loadUsage() {
   try {
     const u = await api('/api/admin/usage');
     $('#usageMonth').textContent = `· ${u.month} (오늘 ${u.today})`;
+    const b = u.baseline || { day:'', counts:{} };
+    $('#baseDay').textContent = b.day ? `· 기준일 ${b.day}` : '';
+    $('#baseCards').innerHTML = Object.keys(CONSOLE).map(k => `<div class="card"><div class="lb">${CONSOLE[k]}</div><div class="big">${num(b.counts[k])}<small style="font-size:12px;font-weight:400;color:var(--muted)"> 최근 30일</small></div></div>`).join('');
+    window.__base = b;
     $('#usageCards').innerHTML = u.kinds.map(k => {
       const info = KIND[k] || { label:k, limit:null }, m = u.month_counts[k] || 0, t = u.today_counts[k] || 0;
       const pct = info.limit ? Math.round(m / info.limit * 100) : null;
@@ -111,6 +128,20 @@ async function loadUsage() {
   } catch (e) { if (e.message !== 'auth') $('#msg').textContent = e.message; }
 }
 $('#refreshUsage').onclick = loadUsage;
+const inputCss = 'width:100%;padding:8px;margin-bottom:6px;border:1px solid var(--line);border-radius:8px;background:var(--card);color:var(--text);font-size:16px';
+$('#baseEdit').onclick = () => {
+  const b = window.__base || { day:'', counts:{} };
+  $('#baseInputs').innerHTML = Object.keys(CONSOLE).map(k => `<label class="lb">${CONSOLE[k]}</label><input data-k="${k}" type="number" inputmode="numeric" min="0" step="1" value="${Number(b.counts[k] || 0)}" style="${inputCss}">`).join('');
+  $('#baseDayInput').value = b.day || '';
+  $('#baseForm').hidden = false;
+};
+$('#baseCancel').onclick = () => { $('#baseForm').hidden = true; };
+$('#baseForm').onsubmit = async e => {
+  e.preventDefault();
+  const counts = {}; document.querySelectorAll('#baseInputs input').forEach(i => counts[i.dataset.k] = Number(i.value));
+  try { await api('/api/admin/usage/baseline', 'POST', { day: $('#baseDayInput').value, counts }); $('#baseForm').hidden = true; $('#msg').textContent = ''; loadUsage(); }
+  catch (err) { if (err.message !== 'auth') $('#msg').textContent = err.message; }
+};
 
 $('#logout').onclick = async () => { await fetch('/api/auth/logout', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' }); location.href = '/login'; };
 loadUsage();

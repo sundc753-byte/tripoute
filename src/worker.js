@@ -107,6 +107,10 @@ function ensureSchema(env) {
       n INTEGER NOT NULL DEFAULT 0,
       PRIMARY KEY (day, user_id, kind)
     )`),
+    env.DB.prepare('CREATE TABLE IF NOT EXISTS app_settings (key TEXT PRIMARY KEY, value TEXT NOT NULL)'),
+    // 앱 집계 도입 전 사용량: 구글 콘솔에서 읽은 최근 30일 요청 수(관리자가 고칠 수 있음)
+    env.DB.prepare('INSERT OR IGNORE INTO app_settings (key, value) VALUES (?, ?)').bind('console_baseline',
+      JSON.stringify({ day: '2026-10-24', counts: { places: 286, routes: 180, maps_js: 102, geocoding: 27 } })),
   ]).then(async () => {
     // 공동 편집 도입 전에 만들어진 trips 테이블에는 새 컬럼을 추가합니다.
     const { results } = await env.DB.prepare('PRAGMA table_info(trips)').all();
@@ -243,6 +247,7 @@ async function logout(request, env, url) {
 // 앱이 보낸 구글 요청 수를 날짜·사용자·종류별로 누적합니다. 구글 과금 기준일(미국 태평양시 자정)에 맞춰 날짜를 나눕니다.
 // 앱이 직접 센 추정치입니다(사용자가 조작할 수 있으므로 참고용).
 const USAGE_KINDS = ['map_load', 'place_details', 'place_details_rich', 'place_photo', 'geocode', 'route_leg', 'autocomplete_select'];
+const CONSOLE_APIS = ['places', 'routes', 'maps_js', 'geocoding'];
 const pacificDay = (d = new Date()) => d.toLocaleDateString('en-CA', { timeZone: 'America/Los_Angeles' });   // YYYY-MM-DD
 function shiftDay(day, n) { const d = new Date(day + 'T00:00:00Z'); d.setUTCDate(d.getUTCDate() + n); return d.toISOString().slice(0, 10); }
 
@@ -281,11 +286,13 @@ async function usageReport(env) {
     ).bind(monthStart).all(),
   ]);
   const toMap = rows => Object.fromEntries(rows.map(x => [x.kind, x.n]));
+  const base = await env.DB.prepare('SELECT value FROM app_settings WHERE key = ?').bind('console_baseline').first();
   const byDay = Object.fromEntries(daily.results.map(x => [x.day, x.n]));
   const users = {};
   for (const x of perUser.results) (users[x.email] ??= { email: x.email, counts: {}, total: 0 }, users[x.email].counts[x.kind] = x.n, users[x.email].total += x.n);
   return {
     today, month: today.slice(0, 7),
+    baseline: base ? JSON.parse(base.value) : null,
     kinds: USAGE_KINDS,
     today_counts: toMap(tod.results), month_counts: toMap(mon.results),
     daily: Array.from({ length: 14 }, (_, i) => { const d = shiftDay(from14, i); return { day: d, n: byDay[d] || 0 }; }),
@@ -297,6 +304,19 @@ async function adminApi(request, env, url, session) {
   if (!session || session.role !== 'admin') return json({ error: '권한이 없습니다.' }, 403);
 
   if (request.method === 'GET' && url.pathname === '/api/admin/usage') return json(await usageReport(env));
+  if (request.method === 'POST' && url.pathname === '/api/admin/usage/baseline') {
+    const body = await request.json().catch(() => ({}));
+    const day = /^\d{4}-\d{2}-\d{2}$/.test(body.day) ? body.day : pacificDay();
+    const counts = {};
+    for (const k of CONSOLE_APIS) {
+      const v = Number(body.counts?.[k]);
+      if (!Number.isInteger(v) || v < 0 || v > 1e9) return json({ error: '요청 수는 0 이상의 정수여야 합니다.' }, 400);
+      counts[k] = v;
+    }
+    await env.DB.prepare('INSERT INTO app_settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value')
+      .bind('console_baseline', JSON.stringify({ day, counts })).run();
+    return json({ ok: true, baseline: { day, counts } });
+  }
 
   if (request.method === 'GET' && url.pathname === '/api/admin/users') {
     const { results } = await env.DB.prepare(

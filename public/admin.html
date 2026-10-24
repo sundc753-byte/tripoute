@@ -15,7 +15,8 @@
   html { background:var(--card); }
   body { margin:0; background:var(--bg); color:var(--text); font-family:-apple-system,"Apple SD Gothic Neo","Noto Sans KR",sans-serif; }
   header { background:var(--card); border-bottom:1px solid var(--line); padding:14px 16px; display:flex; align-items:center; gap:10px; flex-wrap:wrap; }
-  header h1 { margin:0; font-size:17px; flex:1; }
+  header h1 { margin:0; font-size:17px; flex:1; white-space:nowrap; }
+  @media (max-width:560px) { header h1 { flex-basis:100%; } }
   main { max-width:760px; margin:0 auto; padding:16px; }
   a.btn, button { padding:8px 12px; border:1px solid var(--line); border-radius:8px; background:var(--card); color:var(--text); font-size:13px; cursor:pointer; text-decoration:none; }
   button.ok { background:var(--accent); border-color:var(--accent); color:#fff; }
