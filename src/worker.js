@@ -604,13 +604,16 @@ async function handlePage(request, env, url) {
   }
   if (!session) {
     // 확인 불가한 파일은 존재 여부를 숨기고, 페이지 요청은 로그인 화면으로 보냅니다.
-    return p === '/' || p === '/index.html' || p === '/admin' || p === '/admin.html'
+    return p === '/' || p === '/index.html' || p === '/admin' || p === '/admin.html' || p === '/admin/usage'
       ? redirect('/login', url)
       : new Response('Unauthorized', { status: 401, headers: securityHeaders(new Headers()) });
   }
   if (p === '/' || p === '/index.html') return serveAsset(env, url, '/index.html');
   if (p === '/admin' || p === '/admin.html') {
     return session.role === 'admin' ? serveAsset(env, url, '/admin.html') : redirect('/', url);
+  }
+  if (p === '/admin/usage' || p === '/admin-usage.html') {
+    return session.role === 'admin' ? serveAsset(env, url, '/admin-usage.html') : redirect('/', url);
   }
   return serveAsset(env, url, p);
 }

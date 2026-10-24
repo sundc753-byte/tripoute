@@ -55,18 +55,14 @@
 </head>
 <body>
 <header>
-  <h1>관리</h1>
+  <h1>회원 관리</h1>
+  <a class="btn" href="/admin/usage">API 사용량</a>
   <a class="btn" href="/">여행경로로 돌아가기</a>
   <button id="logout">로그아웃</button>
 </header>
 <main>
   <div id="msg"></div>
-  <div class="h2row"><h2>구글 API 사용량 <small id="usageMonth"></small></h2><button id="refreshUsage">새로고침</button></div>
-  <p class="note">앱이 구글 지도로 보낸 요청 수를 <b>앱이 직접 센 추정치</b>입니다(날짜는 구글 과금 기준인 미국 태평양시). 검색창에 글자를 입력할 때마다 나가는 자동완성 요청은 셀 수 없어 “검색 후 장소 선택” 횟수로 대신하며, 무료 한도 막대는 대략적인 참고값입니다. 실제 청구 금액은 <a href="https://console.cloud.google.com/billing" target="_blank" rel="noopener">Google Cloud 결제</a>와 <a href="https://console.cloud.google.com/google/maps-apis/metrics" target="_blank" rel="noopener">Maps Platform 측정항목</a>에서 확인하세요. 최신 요금은 <a href="https://developers.google.com/maps/billing-and-pricing/pricing" target="_blank" rel="noopener">공식 가격표</a>를 따릅니다.</p>
-  <div class="cards" id="usageCards"></div>
-  <div class="chart" id="usageChart" aria-label="최근 14일 일별 요청 수"></div>
-  <h2>사용자별 (이번 달)</h2><div class="list" id="usageUsers"></div>
-  <h2>승인 대기</h2><div class="list" id="pending"></div>
+  <h2 style="margin-top:6px">승인 대기</h2><div class="list" id="pending"></div>
   <h2>승인됨</h2><div class="list" id="approved"></div>
   <h2>거절됨</h2><div class="list" id="rejected"></div>
 </main>
@@ -82,37 +78,6 @@ async function api(path, method = 'GET') {
   if (!res.ok) throw new Error(data.error || '요청 실패');
   return data;
 }
-
-const KIND = {
-  map_load:            { label:'지도 불러오기', short:'지도', limit:10000 },
-  place_details:       { label:'장소 정보 (검색해서 추가)', short:'상세', limit:5000 },
-  place_details_rich:  { label:'장소 정보 (정보창·평점 포함)', short:'상세+', limit:1000 },
-  place_photo:         { label:'장소 사진', short:'사진', limit:1000 },
-  geocode:             { label:'주소 변환', short:'주소', limit:10000 },
-  route_leg:           { label:'경로 계산 (구간)', short:'경로', limit:10000 },
-  autocomplete_select: { label:'검색 후 장소 선택', short:'검색', limit:null },
-};
-const num = n => Number(n || 0).toLocaleString('ko-KR');
-
-async function loadUsage() {
-  try {
-    const u = await api('/api/admin/usage');
-    $('#usageMonth').textContent = `· ${u.month} (오늘 ${u.today})`;
-    $('#usageCards').innerHTML = u.kinds.map(k => {
-      const info = KIND[k] || { label:k, limit:null }, m = u.month_counts[k] || 0, t = u.today_counts[k] || 0;
-      const pct = info.limit ? Math.round(m / info.limit * 100) : null;
-      return `<div class="card"><div class="lb">${esc(info.label)}</div><div class="big">${num(m)}<small style="font-size:12px;font-weight:400;color:var(--muted)"> 이번 달</small></div>
-        <div class="sub">오늘 ${num(t)}${info.limit ? ` · 월 무료 한도 약 ${num(info.limit)}건 중 ${pct}%` : ''}</div>
-        ${info.limit ? `<div class="bar ${pct >= 100 ? 'over' : pct >= 70 ? 'warn' : ''}"><i style="width:${Math.min(100, pct)}%"></i></div>` : ''}</div>`;
-    }).join('');
-    const max = Math.max(1, ...u.daily.map(d => d.n));
-    $('#usageChart').innerHTML = u.daily.map(d => `<div class="col" title="${d.day}: ${num(d.n)}건"><em>${d.n ? num(d.n) : ''}</em><b style="height:${Math.round(d.n / max * 70)}%"></b><span>${d.day.slice(5)}</span></div>`).join('');
-    $('#usageUsers').innerHTML = u.users.length ? u.users.map(x =>
-      `<div class="row"><div class="who">${esc(x.email)}<div class="brk">${u.kinds.filter(k => x.counts[k]).map(k => `${KIND[k]?.short || k} ${num(x.counts[k])}`).join(' · ')}</div></div><div class="tot">${num(x.total)}건</div></div>`
-    ).join('') : '<div class="empty">아직 기록이 없어요. 사용자가 앱을 쓰면 쌓입니다.</div>';
-  } catch (e) { if (e.message !== 'auth') $('#msg').textContent = e.message; }
-}
-$('#refreshUsage').onclick = loadUsage;
 
 function rowHtml(u) {
   const acts = u.role === 'admin' ? '<span class="tag">관리자</span>' : {
@@ -143,7 +108,6 @@ document.addEventListener('click', async e => {
 });
 $('#logout').onclick = async () => { await fetch('/api/auth/logout', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' }); location.href = '/login'; };
 load();
-loadUsage();
 </script>
 </body>
 </html>
